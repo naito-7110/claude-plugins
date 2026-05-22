@@ -1,5 +1,8 @@
 ---
 description: Analyze staged changes and create a commit with conventional commit message
+tools:
+  - Bash(git status, git diff, git commit)
+  - AskUserQuestion
 ---
 
 ステージされた変更を分析し、Conventional Commits形式でコミットを作成します。
