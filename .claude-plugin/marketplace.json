@@ -4,5 +4,10 @@
     "name": "naito-7110"
   },
   "plugins": [
+    {
+      "name": "git-workflows",
+      "description": "git workflow helpers",
+      "source": "./plugins/git-workflows"
+    }
   ]
 }
