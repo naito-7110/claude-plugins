@@ -1,8 +1,9 @@
 ---
 description: Analyze staged changes and create a commit with conventional commit message
 tools:
-  - Bash(git status, git diff, git commit)
+  - Bash(git status, git diff, git log, git add, git commit)
   - AskUserQuestion
+  - Read
 ---
 
 ステージされた変更を分析し、Conventional Commits形式でコミットを作成します。
