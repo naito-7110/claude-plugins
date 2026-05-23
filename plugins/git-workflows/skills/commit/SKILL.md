@@ -13,7 +13,7 @@ tools:
 1. `git status` でステージされた変更を確認
 2. `git diff --cached` でステージされた変更の内容を分析
 3. 変更内容に基づいてConventional Commit形式のメッセージを生成
-4. ユーザーに確認後、コミットを実行
+4. ユーザーに`AskUserQuestionTool`で確認後、コミットを実行
 
 ## Conventional Commits形式
 
@@ -38,3 +38,4 @@ tools:
 - subjectは50文字以内
 - bodyは72文字で折り返す
 - コミットメッセージは英語で記述する
+- ステージ内容が分解できる場合は、コミットを分けること
