@@ -38,12 +38,21 @@ tools:
 
 ## Issue本文テンプレート
 
-```markdown
+````markdown
 ## Summary / 概要
 <何をやるかの要約>
 
 ## Motivation / 背景
 <なぜやるか>
+
+## フロー / 図解
+<処理の流れ、状態遷移、データの流れ等を Mermaid で図示>
+
+```mermaid
+flowchart TD
+    A[入力] --> B[処理]
+    B --> C[出力]
+```
 
 ## Acceptance Criteria
 - [ ] <完了条件>
@@ -54,9 +63,9 @@ tools:
 
 ## 懸念事項
 - <既知の懸念・要検討事項>
-```
+````
 
-セクションが空になる場合は、そのセクションごと省略する。
+セクションが空になる場合は、そのセクションごと省略する。図解セクションは、フロー・状態遷移・データ構造などが説明にあると分かりやすい場合に積極的に含める（Mermaid: `flowchart`, `sequenceDiagram`, `stateDiagram-v2`, `erDiagram` など）。
 
 ## 注意事項
 
