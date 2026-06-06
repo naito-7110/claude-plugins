@@ -1,5 +1,5 @@
 {
   "name": "git-workflows",
-  "description": "Git commit workflow support with conventional commits",
-  "version": "0.1.2"
+  "description": "Git workflow support: conventional commits and pull request creation",
+  "version": "0.2.0"
 }
