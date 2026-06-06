@@ -1,0 +1,5 @@
+{
+  "name": "dev-team",
+  "description": "Dev team workflow support: GitHub issue planning, pickup, wrap-up, review, standup",
+  "version": "0.1.0"
+}
