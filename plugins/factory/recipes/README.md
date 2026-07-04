@@ -23,6 +23,8 @@
 | レシピ | 対応プリセット | 状態 |
 | --- | --- | --- |
 | [error-handling-http](./error-handling-http.md) | error-handling | 収録済み |
-| supply-chain-pnpm | supply-chain-security | 予定 |
-| supply-chain-dotnet | supply-chain-security | 予定 |
-| supply-chain-gha | supply-chain-security | 予定 |
+| [supply-chain-pnpm](./supply-chain-pnpm.md) | supply-chain-security | 収録済み |
+| [supply-chain-dotnet](./supply-chain-dotnet.md) | supply-chain-security | 収録済み |
+| [supply-chain-gha](./supply-chain-gha.md) | supply-chain-security | 収録済み |
+| [i18n-typescript](./i18n-typescript.md) | i18n-copy | 収録済み |
+| [infrastructure-terraform](./infrastructure-terraform.md) | infrastructure | 収録済み |
