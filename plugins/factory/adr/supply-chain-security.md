@@ -21,7 +21,14 @@
 
 ### CI・自動化の防護
 
-- GitHub Actions の外部参照(`uses:` の Action・再利用ワークフロー)はタグ参照を禁止し、**commit SHA 固定 + タグコメント**(`uses: owner/repo@<sha> # vX`)とする。更新は dependabot(github-actions ecosystem)が SHA とコメントの両方を書き換える形で追随する
+- GitHub Actions の外部参照(`uses:` の Action・再利用ワークフロー)はタグ参照を禁止し、**commit SHA 固定 + タグコメント**(`uses: owner/repo@<sha> # vX`)とする。更新は dependabot(github-actions ecosystem)が SHA とコメントの両方を書き換える形で追随する(タグは付け替え可能であり、タグ汚染・imposter commit の経路になるため)
+- **workflow の権限は最小化する**: トップレベルで `permissions: {}`(または read のみ)を明示し、ジョブ単位で必要最小の権限だけを付与する
+- **スクリプトインジェクション対策**: 外部由来のコンテキスト(issue タイトル・PR 本文・ブランチ名等)を `run:` の `${{ }}` で直接展開しない。**必ず `env:` の中間環境変数に入れてシェル変数(`$VAR`)で参照する**。すべての外部入力に例外なく適用する
+- **特権トリガーでの untrusted checkout 禁止**: `pull_request_target` 等の特権コンテキストで fork 由来のコードを checkout・実行しない(間接実行 — インストールスクリプト・ビルド設定経由 — を含む)。必要なら `pull_request` へ変更するか、ジョブ分離 + 権限最小化で隔離する
+- **キャッシュと artifact の信頼境界**: secrets・リリースを扱う workflow ではキャッシュを使わない(キャッシュポイズニング対策)。artifact は取得時にパスを明示し、内容を検証してから使う
+- **secrets の受け渡し**: 再利用ワークフローへ `secrets: inherit` を使わず、必要な secret のみ明示的に渡す
+- **self-hosted runner をパブリックリポジトリで使わない**
+- **workflow から AI エージェントを起動する場合**は、実行者を write 権限者に限定し、ツールと権限を最小化する(prompt injection 経由の初期アクセス対策)
 - **デプロイはデプロイ先のリリース処理をキックするだけ**にする。CI にデプロイ資格情報・デプロイ手順そのものを持ち込まない
 
 ### secrets
@@ -34,3 +41,9 @@
 - **得るもの**: 主要な攻撃経路(公開直後の悪意あるバージョン・タグ差し替え・secrets 混入・CI からの流出)を構造的に遮断し、エージェントが安全側の既定の上で自律的に動ける
 - **諦めるもの**: 最新バージョンへの追従がクールダウン分だけ遅れる。例外手続き(人間承認)の手数が増える
 - **緩和策**: 更新ボットの自動 PR で追従自体は機械化し、人間の判断は例外時だけに絞る
+
+## 参考
+
+- [Flatt Security: GitHub Actions セキュリティ Part 1(初期アクセス手法)](https://blog.flatt.tech/entry/2026-github-actions-security-part1)
+- [Flatt Security: GitHub Actions セキュリティ Part 2(権限・認証情報)](https://blog.flatt.tech/entry/2026-github-actions-security-part2)
+- [GitHub Changelog: safer pull_request_target defaults for actions/checkout](https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/)
