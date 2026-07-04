@@ -64,7 +64,3 @@ ignore-scripts=true
 - `pnpm audit` に加え、複数ソースを統合した脆弱性 DB を使うスキャナ(OSV スキャナ等)を CI に組み込み、脆弱な依存のマージを止める
 - 推移的依存の脆弱バージョンは `overrides` で暫定固定できる(恒久対応は更新 PR)
 - 更新の自動化は dependabot(npm ecosystem)+ cooldown
-
-## 参考
-
-- 『バイブコーディングの脆弱性』(Kyohei Fukuda 著)2.6 章 — 3 層防御の整理と実事例(2025 年の npm 大規模侵害・自己増殖型ワーム・AI ツール起点の攻撃)
