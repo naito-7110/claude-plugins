@@ -38,7 +38,9 @@ gh label create "priority:low" --color C5DEF5 --description "優先度: 低" --f
 gh label create "merge:agent" --color 5319E7 --description "agent がマージまで実行してよい(人間が付与。無ければ人間マージが既定)" --force
 ```
 
-`merge:agent` はマージ軸のラベルで、着手軸(`agent-ok` / `agent-wip` / `needs-human`)と直交する。hook ゲート(#14)がマージ可否の判定に使う。付与は issue の時点で行う: **AI が merge-policy(プリセット)を基に「このタスクは agent マージ可か」を提案し(groom / triage の必須アジェンダ)、人間が承認して付与する**。
+`merge:agent` はマージ軸のラベルで、着手軸(`agent-ok` / `agent-wip` / `needs-human`)と直交する。hook ゲート(#14)がマージ可否の判定に使う。
+
+**付与は grooming の場に限定する**: AI が merge-policy(プリセット)を基に「このタスクは agent マージ可か」を提案し、人間が承認して **Ready 化と同時に**付与する。triage は提案コメントまで(ラベルは付けない)。無人セッションは付与・変更とも禁止(hook #14 が強制)。これにより「人間がレビューしていない merge:agent」は構造的に存在しない。work / night は着手時に**鮮度チェック**(付与後に issue 本文・受け入れ条件が変わっていないか)を行い、変わっていれば無人マージせず人間レーンへ降格する。
 
 ### 3. Projects ボード(既定で作成)
 
