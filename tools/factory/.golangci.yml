@@ -1,0 +1,10 @@
+version: "2"
+
+linters:
+  settings:
+    errcheck:
+      # CLI の標準出力への fmt.Fprint* は戻り値検査を要求しない(Go CLI の一般慣例)
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint

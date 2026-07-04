@@ -1,0 +1,62 @@
+name: factory-cli
+
+on:
+  pull_request:
+    paths:
+      - "tools/factory/**"
+      - ".github/workflows/factory-cli.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tools/factory/**"
+      - ".github/workflows/factory-cli.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: tools/factory
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: tools/factory/go.mod
+          cache-dependency-path: tools/factory/go.sum
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.10.1
+          working-directory: tools/factory
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: tools/factory/go.mod
+          cache-dependency-path: tools/factory/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: tools/factory/go.mod
+          cache-dependency-path: tools/factory/go.sum
+      - run: go build -o /dev/null ./...
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}

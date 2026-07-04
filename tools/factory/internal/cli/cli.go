@@ -1,0 +1,178 @@
+// Package cli は factory コマンドの引数解析とサブコマンド実行を担う。
+package cli
+
+import (
+	"flag"
+	"fmt"
+	"io"
+
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/board"
+)
+
+// Deps は実行時依存(GraphQL クライアント生成・カレントリポジトリ解決)。
+// テストでは fake を注入する。
+type Deps struct {
+	NewClient   func() (board.GraphQL, error)
+	CurrentRepo func() (string, error)
+	Out         io.Writer
+	Err         io.Writer
+}
+
+// 終了コード。
+const (
+	ExitOK    = 0
+	ExitError = 1
+	ExitUsage = 2
+)
+
+const usage = `使い方: factory board <copy|verify> [オプション]
+
+サブコマンド:
+  board copy    正準ボード(factory board template)を対象 owner へ複製する
+                --owner <owner>        複製先の user / organization(必須)
+                --title <title>        ボード名(省略時: "<リポジトリ名> board")
+                --repo <owner/name>    リンクするリポジトリ(省略時: カレントリポジトリ)
+                --source-owner <o>     正準ボードの owner(既定: naito-7110)
+                --source-number <n>    正準ボードの番号(既定: 4)
+  board verify  ボードの Status 6 値(ハードゲート)とビュー・日付フィールド(警告)を検証する
+                --owner <owner>        対象の user / organization(必須)
+                --number <n>           ボード番号(必須)
+`
+
+// Run は引数を解釈してサブコマンドを実行し、終了コードを返す。
+func Run(args []string, deps Deps) int {
+	if len(args) < 2 || args[0] != "board" {
+		fmt.Fprint(deps.Err, usage)
+		return ExitUsage
+	}
+	switch args[1] {
+	case "copy":
+		return runCopy(args[2:], deps)
+	case "verify":
+		return runVerify(args[2:], deps)
+	default:
+		fmt.Fprint(deps.Err, usage)
+		return ExitUsage
+	}
+}
+
+func runVerify(args []string, deps Deps) int {
+	fs := flag.NewFlagSet("board verify", flag.ContinueOnError)
+	fs.SetOutput(deps.Err)
+	owner := fs.String("owner", "", "対象の user / organization")
+	number := fs.Int("number", 0, "ボード番号")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	if *owner == "" || *number == 0 {
+		fmt.Fprintln(deps.Err, "--owner と --number は必須です")
+		fmt.Fprint(deps.Err, usage)
+		return ExitUsage
+	}
+
+	client, err := deps.NewClient()
+	if err != nil {
+		fmt.Fprintln(deps.Err, err)
+		return ExitError
+	}
+	report, err := board.Verify(client, *owner, *number)
+	if err != nil {
+		fmt.Fprintln(deps.Err, err)
+		return ExitError
+	}
+	return printReport(deps, report)
+}
+
+func runCopy(args []string, deps Deps) int {
+	fs := flag.NewFlagSet("board copy", flag.ContinueOnError)
+	fs.SetOutput(deps.Err)
+	opts := board.CopyOptions{}
+	fs.StringVar(&opts.TargetOwner, "owner", "", "複製先の user / organization")
+	fs.StringVar(&opts.Title, "title", "", "ボード名")
+	fs.StringVar(&opts.Repo, "repo", "", "リンクするリポジトリ(owner/name)")
+	fs.StringVar(&opts.SourceOwner, "source-owner", board.DefaultSourceOwner, "正準ボードの owner")
+	fs.IntVar(&opts.SourceNumber, "source-number", board.DefaultSourceNumber, "正準ボードの番号")
+	if err := fs.Parse(args); err != nil {
+		return ExitUsage
+	}
+	if opts.TargetOwner == "" {
+		fmt.Fprintln(deps.Err, "--owner は必須です")
+		fmt.Fprint(deps.Err, usage)
+		return ExitUsage
+	}
+
+	// --repo 省略時はカレントリポジトリへリンクする(解決できなければスキップ)。
+	if opts.Repo == "" {
+		repo, err := deps.CurrentRepo()
+		if err == nil {
+			opts.Repo = repo
+		} else {
+			fmt.Fprintln(deps.Out, "==> カレントリポジトリを解決できないため、リンクはスキップします(--repo で指定できます)")
+		}
+	}
+	if opts.Title == "" {
+		opts.Title = defaultTitle(opts.Repo)
+	}
+
+	client, err := deps.NewClient()
+	if err != nil {
+		fmt.Fprintln(deps.Err, err)
+		return ExitError
+	}
+
+	fmt.Fprintf(deps.Out, "==> 正準ボード %s/projects/%d を %s へ複製します\n",
+		opts.SourceOwner, opts.SourceNumber, opts.TargetOwner)
+	result, err := board.Copy(client, opts)
+	if err != nil {
+		fmt.Fprintln(deps.Err, err)
+		return ExitError
+	}
+	fmt.Fprintf(deps.Out, "==> 複製完了: %s (#%d)\n", result.URL, result.Number)
+	fmt.Fprintln(deps.Out, "==> 説明欄を設定しました")
+	if result.LinkedRepo != "" {
+		fmt.Fprintf(deps.Out, "==> %s にリンクしました\n", result.LinkedRepo)
+	}
+	code := printReport(deps, result.Report)
+	printChecklist(deps.Out, result.URL)
+	return code
+}
+
+func defaultTitle(repo string) string {
+	if repo == "" {
+		return "factory board"
+	}
+	name := repo
+	for i := len(repo) - 1; i >= 0; i-- {
+		if repo[i] == '/' {
+			name = repo[i+1:]
+			break
+		}
+	}
+	return name + " board"
+}
+
+func printReport(deps Deps, report board.Report) int {
+	code := ExitOK
+	if report.StatusOK {
+		fmt.Fprintf(deps.Out, "OK: %s/projects/%d の Status は factory の 6 値です\n",
+			report.Owner, report.Number)
+	} else {
+		fmt.Fprintln(deps.Err, "NG: Status の選択肢が期待と異なります")
+		fmt.Fprintf(deps.Err, "  期待: %v\n", board.StatusOptions)
+		fmt.Fprintf(deps.Err, "  実際: %v\n", report.ActualStatus)
+		code = ExitError
+	}
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(deps.Out, "警告: %s\n", warning)
+	}
+	return code
+}
+
+func printChecklist(out io.Writer, url string) {
+	fmt.Fprintf(out, `
+==> 残る手作業(API では自動化できません):
+  [ ] auto-add ワークフローの有効化(issue を自動で Inbox に入れる):
+      %s → 右上「…」→ Workflows → Auto-add to project
+      → 対象リポジトリを選択、フィルタ「is:issue is:open」、Status = Inbox で有効化
+`, url)
+}
