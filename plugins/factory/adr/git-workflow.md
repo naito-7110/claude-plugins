@@ -25,13 +25,15 @@
 ### コミット
 
 - conventional commits(type + scope 必須)、メッセージは英語
+- type は次に固定する: `feat` / `fix` / `docs` / `style` / `refactor` / `perf` / `test` / `chore` / `hotfix`。追加・変更は本プリセットの改訂で行い、全プロジェクトで揃える
 - 意味のある最小単位でコミットする。「作業一時保存」的なコミットを PR に残さない
 
 ### マージと履歴
 
 - **main への直 push・force push を禁止**する(hook・ブランチ保護で機械的に強制)
-- PR のマージ方式は **squash merge を既定**とする: PR = 関心事が単一(pr-granularity)なので 1 コミット化が自然で、conventional な PR タイトルがそのまま履歴になる。分割コミットに意味がある PR(段階的な移行等)のみ merge commit を選ぶ
-- 共有済みブランチの履歴改変(rebase + force push)をしない。手元の未共有ブランチの整理は自由
+- PR のマージ方式は **squash merge に固定**する: PR = 関心事が単一(pr-granularity)なので 1 コミット化が自然で、conventional な PR タイトルがそのまま履歴になる。**マージコミット・rebase マージは使わない** — 細かいコミット履歴に意味があると感じたら、それは PR を分割するシグナル(pr-granularity)
+- 作業ブランチの main への追従は **rebase** で行い、取り込みのマージコミットを作らない(ローカル・リモートを問わず、マージコミットを履歴に残さない)
+- PR ブランチは作者のみが書く前提とし、main 追従のための rebase + force push を許容する。複数人が共有するブランチでは履歴改変をしない
 
 ### 追跡可能性
 
