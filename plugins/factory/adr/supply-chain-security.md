@@ -31,9 +31,10 @@
 - **workflow から AI エージェントを起動する場合**は、実行者を write 権限者に限定し、ツールと権限を最小化する(prompt injection 経由の初期アクセス対策)
 - **デプロイはデプロイ先のリリース処理をキックするだけ**にする。CI にデプロイ資格情報・デプロイ手順そのものを持ち込まない
 
-### secrets
+### secrets とトークンの衛生
 
 - リポジトリに secrets を置かない。**secrets スキャンを pre-commit と CI の両方**で自動化する
+- **アクセストークンは最小権限・期限付きに限定する**: 広域スコープの長寿命トークン(classic PAT 相当)を使わず、リポジトリ・権限を絞った期限付きトークン(fine-grained 相当)にする。1 つの漏洩が全リポジトリの侵害にならない形を保つ(infrastructure の一時権限と接続)
 - 開発時の secrets は環境変数等のリポジトリ外の仕組みで扱い、本番の保管先はプロジェクトごとに選定する
 
 ## トレードオフ
@@ -41,9 +42,3 @@
 - **得るもの**: 主要な攻撃経路(公開直後の悪意あるバージョン・タグ差し替え・secrets 混入・CI からの流出)を構造的に遮断し、エージェントが安全側の既定の上で自律的に動ける
 - **諦めるもの**: 最新バージョンへの追従がクールダウン分だけ遅れる。例外手続き(人間承認)の手数が増える
 - **緩和策**: 更新ボットの自動 PR で追従自体は機械化し、人間の判断は例外時だけに絞る
-
-## 参考
-
-- [Flatt Security: GitHub Actions セキュリティ Part 1(初期アクセス手法)](https://blog.flatt.tech/entry/2026-github-actions-security-part1)
-- [Flatt Security: GitHub Actions セキュリティ Part 2(権限・認証情報)](https://blog.flatt.tech/entry/2026-github-actions-security-part2)
-- [GitHub Changelog: safer pull_request_target defaults for actions/checkout](https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/)
