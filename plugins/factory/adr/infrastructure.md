@@ -15,7 +15,7 @@
 - インフラはコードで宣言し、リポジトリでレビュー・履歴管理する。**IaC はデファクトスタンダードとして Terraform を既定とする**(他を採用する場合はローカル ADR で `Overrides` を宣言する)
 - コンソールからの手作業変更(ClickOps)を原則禁止する。緊急時の手作業は、事後に必ずコードへ反映して実態と宣言の乖離を残さない
 - 宣言と実態の乖離(ドリフト)は検知の対象とし、放置しない
-- 運用の具体(state 管理・plan/apply の流れ・ドリフト検知の実装)はレシピ([infrastructure-terraform](../recipes/infrastructure-terraform.md))に置く
+- 運用の具体(state 管理・plan/apply の流れ・ドリフト検知の実装)はレシピ(infrastructure-terraform)に定める
 
 ### 環境分離と昇格ゲート
 
