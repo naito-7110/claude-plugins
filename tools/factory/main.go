@@ -1,0 +1,38 @@
+// factory — factory プラグインの CLI。
+//
+// GitHub Projects の正準ボード「factory board template」の複製と検証を行う。
+// 認証は gh CLI のセッションを継承する(go-gh)。
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/cli/go-gh/v2/pkg/api"
+	"github.com/cli/go-gh/v2/pkg/repository"
+
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/board"
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/cli"
+)
+
+func main() {
+	deps := cli.Deps{
+		NewClient: func() (board.GraphQL, error) {
+			client, err := api.DefaultGraphQLClient()
+			if err != nil {
+				return nil, fmt.Errorf("gh の認証情報を取得できません(gh auth login を実行してください): %w", err)
+			}
+			return client, nil
+		},
+		CurrentRepo: func() (string, error) {
+			repo, err := repository.Current()
+			if err != nil {
+				return "", err
+			}
+			return repo.Owner + "/" + repo.Name, nil
+		},
+		Out: os.Stdout,
+		Err: os.Stderr,
+	}
+	os.Exit(cli.Run(os.Args[1:], deps))
+}
