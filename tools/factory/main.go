@@ -1,6 +1,7 @@
 // factory — factory プラグインの CLI。
 //
-// GitHub Projects の正準ボード「factory board template」の複製と検証を行う。
+// GitHub Projects の正準ボード「factory board template」の複製・検証と、
+// issue / PR の整合検証(spec-alignment / merge-policy の機械検証可能な部分)を行う。
 // 認証は gh CLI のセッションを継承する(go-gh)。
 package main
 
