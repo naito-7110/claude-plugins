@@ -3,3 +3,4 @@
 ## Plugins
 - `git-workflows`
 - `docs`
+- `factory`

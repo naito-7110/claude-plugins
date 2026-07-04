@@ -8,6 +8,11 @@
       "name": "git-workflows",
       "description": "git workflow helpers",
       "source": "./plugins/git-workflows"
+    },
+    {
+      "name": "factory",
+      "description": "24/7 autonomous dev factory: ADR as constitution, GitHub issues/labels as durable state, humans gate spec/ADR/merge",
+      "source": "./plugins/factory"
     }
   ]
 }
