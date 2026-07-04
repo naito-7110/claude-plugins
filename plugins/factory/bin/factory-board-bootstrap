@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# factory-board-bootstrap — factory ボードをゼロから生成する(copy が使えない場合のフォールバック、
+# または owner ごとの正準ボードの再生成に使う)
+#
+# ProjectV2 を作成し、組み込み Status フィールドの選択肢を factory の 6 値
+# (Inbox / Spec / Ready / In Progress / In Review / Done)へ GraphQL
+# updateProjectV2Field で書き換える。Web UI での Status 手作業は不要。
+#
+# 依存: bash / gh / jq のみ(スタック非依存)。gh には project スコープが必要。
+# ビューと auto-add ワークフローは API 非対応のため手作業チェックリストを出力する。
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+使い方: factory-board-bootstrap --owner <owner> --title <title> [オプション]
+
+オプション:
+  --owner <owner>   ボードを作る user / organization(必須)
+  --title <title>   ボード名(必須。例: "factory board template")
+  --public          公開ボードにする(正準テンプレートとして公開する場合)
+  --repo <owner/repo>  作成後にリンクするリポジトリ(任意)
+USAGE
+}
+
+OWNER="" TITLE="" REPO="" PUBLIC=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --owner) OWNER="$2"; shift 2 ;;
+    --title) TITLE="$2"; shift 2 ;;
+    --repo) REPO="$2"; shift 2 ;;
+    --public) PUBLIC=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "不明な引数: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+[ -n "$OWNER" ] && [ -n "$TITLE" ] || { usage >&2; exit 1; }
+
+command -v gh >/dev/null || { echo "gh が必要です" >&2; exit 1; }
+command -v jq >/dev/null || { echo "jq が必要です" >&2; exit 1; }
+
+# fail-closed: project スコープの確認
+SCOPES=$(gh api user -i 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="x-oauth-scopes"{print $2}')
+case ",${SCOPES// /}," in
+  *,project,*) : ;;
+  *) echo "gh トークンに project スコープがありません。'gh auth refresh -s project' を実行してください" >&2; exit 1 ;;
+esac
+
+OWNER_ID=$(gh api graphql -f query='query($login:String!){ repositoryOwner(login:$login){ id } }' \
+  -f login="$OWNER" --jq '.data.repositoryOwner.id')
+
+echo "==> ${OWNER} にボード「${TITLE}」を作成します"
+CREATED=$(gh api graphql -f query='mutation($o:ID!,$t:String!){ createProjectV2(input:{ownerId:$o, title:$t}){ projectV2 { id number url } } }' \
+  -f o="$OWNER_ID" -f t="$TITLE" --jq '.data.createProjectV2.projectV2')
+PROJECT_ID=$(jq -r '.id' <<<"$CREATED")
+NUMBER=$(jq -r '.number' <<<"$CREATED")
+URL=$(jq -r '.url' <<<"$CREATED")
+echo "==> 作成完了: $URL (#$NUMBER)"
+
+if $PUBLIC; then
+  gh api graphql -f query='mutation($p:ID!){ updateProjectV2(input:{projectId:$p, public:true}){ projectV2 { public } } }' \
+    -f p="$PROJECT_ID" >/dev/null
+  echo "==> 公開(public)に設定しました"
+fi
+
+# 組み込み Status フィールドの選択肢を factory の 6 値へ書き換える
+STATUS_FIELD_ID=$(gh api graphql -f query='query($p:ID!){ node(id:$p){ ... on ProjectV2 { field(name:"Status"){ ... on ProjectV2SingleSelectField { id } } } } }' \
+  -f p="$PROJECT_ID" --jq '.data.node.field.id')
+gh api graphql -f query='mutation($f:ID!){ updateProjectV2Field(input:{fieldId:$f, singleSelectOptions:[
+  {name:"Inbox",       color:GRAY,   description:"未仕分け。triage の入力"},
+  {name:"Spec",        color:ORANGE, description:"仕様揉み中(人間ゲート: groom)"},
+  {name:"Ready",       color:GREEN,  description:"着手可能。orchestrate / night が配車する"},
+  {name:"In Progress", color:YELLOW, description:"エージェント作業中"},
+  {name:"In Review",   color:BLUE,   description:"PR レビュー中(人間ゲート: マージ)"},
+  {name:"Done",        color:PURPLE, description:"完了"}
+]}){ projectV2Field { ... on ProjectV2SingleSelectField { id } } } }' \
+  -f f="$STATUS_FIELD_ID" >/dev/null
+echo "==> Status を 6 値(Inbox/Spec/Ready/In Progress/In Review/Done)に書き換えました"
+
+if [ -n "$REPO" ]; then
+  gh project link "$NUMBER" --owner "$OWNER" --repo "$REPO"
+  echo "==> $REPO にリンクしました"
+fi
+
+"$(dirname "$0")/factory-board-verify" --owner "$OWNER" --number "$NUMBER"
+
+cat <<CHECKLIST
+
+==> 残る手作業(API では自動化できません):
+  [ ] ビューの作成($URL で「+ New view」):
+      1. Board       — レイアウト: Board、column by: Status(既定ビューを Board に変更でも可)
+      2. Table       — レイアウト: Table、表示フィールド: Title / Status / Labels / Assignees / Repository
+      3. Needs human — レイアウト: Table、フィルタ: label:needs-human -status:Done
+      4. Night queue — レイアウト: Table、フィルタ: label:agent-ok label:merge:agent status:Ready
+  [ ] auto-add ワークフローの有効化(issue を自動で Inbox に入れる):
+      $URL → 右上「…」→ Workflows → Auto-add to project
+      → 対象リポジトリを選択、フィルタ「is:issue is:open」、Status = Inbox で有効化
+CHECKLIST

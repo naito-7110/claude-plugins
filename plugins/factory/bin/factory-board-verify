@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# factory-board-verify — ProjectV2 ボードの Status が factory の 6 値であることを検証する
+#
+# 依存: bash / gh / jq のみ(スタック非依存)
+# 終了コード: 0 = 一致、1 = 不一致または取得失敗
+set -euo pipefail
+
+EXPECTED='["Inbox","Spec","Ready","In Progress","In Review","Done"]'
+
+usage() {
+  cat <<'USAGE'
+使い方: factory-board-verify --owner <owner> --number <n>
+
+ProjectV2 ボードの組み込み Status フィールドの選択肢が
+Inbox / Spec / Ready / In Progress / In Review / Done(この順)で
+あることを検証します。owner は user / organization のどちらでも可。
+USAGE
+}
+
+OWNER="" NUMBER=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --owner) OWNER="$2"; shift 2 ;;
+    --number) NUMBER="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "不明な引数: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+[ -n "$OWNER" ] && [ -n "$NUMBER" ] || { usage >&2; exit 1; }
+
+command -v gh >/dev/null || { echo "gh が必要です" >&2; exit 1; }
+command -v jq >/dev/null || { echo "jq が必要です" >&2; exit 1; }
+
+# owner の種別(User / Organization)で GraphQL のルートを切り替える
+OWNER_TYPE=$(gh api "users/$OWNER" --jq '.type')
+case "$OWNER_TYPE" in
+  User) ROOT="user" ;;
+  Organization) ROOT="organization" ;;
+  *) echo "owner 種別を判定できません: $OWNER_TYPE" >&2; exit 1 ;;
+esac
+
+ACTUAL=$(gh api graphql \
+  -f query="query(\$login:String!,\$number:Int!){ $ROOT(login:\$login){ projectV2(number:\$number){ field(name:\"Status\"){ ... on ProjectV2SingleSelectField { options { name } } } } } }" \
+  -f login="$OWNER" -F number="$NUMBER" \
+  --jq ".data.$ROOT.projectV2.field.options | map(.name)")
+
+if [ "$(jq -cn "$EXPECTED")" = "$(jq -c . <<<"$ACTUAL")" ]; then
+  echo "OK: $OWNER/projects/$NUMBER の Status は factory の 6 値です"
+else
+  echo "NG: Status の選択肢が期待と異なります" >&2
+  echo "  期待: $(jq -cn "$EXPECTED")" >&2
+  echo "  実際: $(jq -c . <<<"$ACTUAL")" >&2
+  exit 1
+fi

@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# factory-board-copy — 正準ボード「factory board template」を対象 owner へ複製し、
+# リポジトリへリンクして Status 6 値を検証する
+#
+# 依存: bash / gh / jq のみ(スタック非依存)。gh には project スコープが必要。
+# API で自動化できない操作(auto-add ワークフロー等)は最後に手作業チェックリストとして出力する。
+set -euo pipefail
+
+DEFAULT_SOURCE_OWNER="naito-7110"
+DEFAULT_SOURCE_NUMBER=4
+
+usage() {
+  cat <<USAGE
+使い方: factory-board-copy --target-owner <owner> --title <title> [オプション]
+
+オプション:
+  --target-owner <owner>   複製先の user / organization(必須)
+  --title <title>          複製後のボード名(必須。例: "myrepo board")
+  --repo <owner/repo>      複製後にリンクするリポジトリ(任意)
+  --source-owner <owner>   正準ボードの owner(既定: $DEFAULT_SOURCE_OWNER)
+  --source-number <n>      正準ボードの番号(既定: $DEFAULT_SOURCE_NUMBER)
+
+正準ボードから Status 6 値(Inbox/Spec/Ready/In Progress/In Review/Done)と
+ビュー構成ごと複製します。readme・公開設定・auto-add ワークフローは
+gh project copy では複製されないため、説明欄はスクリプトが設定し、
+残りは手作業チェックリストとして出力します。
+USAGE
+}
+
+TARGET_OWNER="" TITLE="" REPO=""
+SOURCE_OWNER="$DEFAULT_SOURCE_OWNER"
+SOURCE_NUMBER="$DEFAULT_SOURCE_NUMBER"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target-owner) TARGET_OWNER="$2"; shift 2 ;;
+    --title) TITLE="$2"; shift 2 ;;
+    --repo) REPO="$2"; shift 2 ;;
+    --source-owner) SOURCE_OWNER="$2"; shift 2 ;;
+    --source-number) SOURCE_NUMBER="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "不明な引数: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+[ -n "$TARGET_OWNER" ] && [ -n "$TITLE" ] || { usage >&2; exit 1; }
+
+command -v gh >/dev/null || { echo "gh が必要です" >&2; exit 1; }
+command -v jq >/dev/null || { echo "jq が必要です" >&2; exit 1; }
+
+# fail-closed: project スコープの確認
+SCOPES=$(gh api user -i 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1)=="x-oauth-scopes"{print $2}')
+case ",${SCOPES// /}," in
+  *,project,*) : ;;
+  *) echo "gh トークンに project スコープがありません。'gh auth refresh -s project' を実行してください" >&2; exit 1 ;;
+esac
+
+echo "==> 正準ボード $SOURCE_OWNER/projects/$SOURCE_NUMBER を $TARGET_OWNER へ複製します"
+COPY_JSON=$(gh project copy "$SOURCE_NUMBER" \
+  --source-owner "$SOURCE_OWNER" \
+  --target-owner "$TARGET_OWNER" \
+  --title "$TITLE" \
+  --format json)
+NUMBER=$(jq -r '.number' <<<"$COPY_JSON")
+PROJECT_ID=$(jq -r '.id' <<<"$COPY_JSON")
+URL=$(jq -r '.url' <<<"$COPY_JSON")
+echo "==> 複製完了: $URL (#$NUMBER)"
+
+# 説明欄(copy では複製されない)を設定する
+gh api graphql -f query='mutation($p:ID!,$d:String!){ updateProjectV2(input:{projectId:$p, shortDescription:$d}){ projectV2 { number } } }' \
+  -f p="$PROJECT_ID" \
+  -f d="factory ボード(正準テンプレート $SOURCE_OWNER/projects/$SOURCE_NUMBER から複製)" >/dev/null
+echo "==> 説明欄を設定しました"
+
+if [ -n "$REPO" ]; then
+  gh project link "$NUMBER" --owner "$TARGET_OWNER" --repo "$REPO"
+  echo "==> $REPO にリンクしました"
+fi
+
+# Status 6 値の検証(同梱の factory-board-verify を使う)
+"$(dirname "$0")/factory-board-verify" --owner "$TARGET_OWNER" --number "$NUMBER"
+
+cat <<CHECKLIST
+
+==> 残る手作業(API では自動化できません):
+  [ ] auto-add ワークフローの有効化(issue を自動で Inbox に入れる):
+      $URL → 右上「…」→ Workflows → Auto-add to project
+      → 対象リポジトリを選択、フィルタ「is:issue is:open」、Status = Inbox で有効化
+  [ ] ビューの確認: 正準ボードのビュー(Board / Table / Needs human / Night queue)が
+      複製されているか確認する(正準ボード側に未設定の場合は複製されません)
+CHECKLIST
