@@ -25,7 +25,7 @@ const (
 	ExitUsage = 2
 )
 
-const usage = `使い方: factory board <copy|verify> [オプション]
+const usage = `使い方: factory <board|issue|pr> <サブコマンド> [オプション]
 
 サブコマンド:
   board copy    正準ボード(factory board template)を対象 owner へ複製する
@@ -37,19 +37,34 @@ const usage = `使い方: factory board <copy|verify> [オプション]
   board verify  ボードの Status 6 値(ハードゲート)とビュー・日付フィールド(警告)を検証する
                 --owner <owner>        対象の user / organization(必須)
                 --number <n>           ボード番号(必須)
+  issue verify  issue の整合(spec-alignment / merge-policy の機械検証可能な部分)を検証する
+                --number <n>           issue 番号(必須)
+                --repo <owner/name>    対象リポジトリ(省略時: カレントリポジトリ)
+                --checks <list>        検査項目のカンマ区切り
+                                       (acceptance,labels,deps,freshness。既定: 全部)
+  pr verify     PR 本文の Closes/Refs #N から関連 issue を解決し issue verify 相当を実行する
+                --number <n>           PR 番号(必須)
+                --repo <owner/name>    対象リポジトリ(省略時: カレントリポジトリ)
+                --checks <list>        関連 issue への検査項目(issue verify と同じ)
+                --dep-manifests <list> 依存マニフェストの glob パターンのカンマ区切り
+                                       (例: go.mod,go.sum,**/package.json。未指定なら検査スキップ)
 `
 
 // Run は引数を解釈してサブコマンドを実行し、終了コードを返す。
 func Run(args []string, deps Deps) int {
-	if len(args) < 2 || args[0] != "board" {
+	if len(args) < 2 {
 		fmt.Fprint(deps.Err, usage)
 		return ExitUsage
 	}
-	switch args[1] {
-	case "copy":
+	switch args[0] + " " + args[1] {
+	case "board copy":
 		return runCopy(args[2:], deps)
-	case "verify":
+	case "board verify":
 		return runVerify(args[2:], deps)
+	case "issue verify":
+		return runIssueVerify(args[2:], deps)
+	case "pr verify":
+		return runPRVerify(args[2:], deps)
 	default:
 		fmt.Fprint(deps.Err, usage)
 		return ExitUsage

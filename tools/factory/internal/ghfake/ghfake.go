@@ -25,18 +25,22 @@ type Project struct {
 
 // Server はインメモリの GitHub。
 type Server struct {
-	OwnerTypes map[string]string // login -> "User" | "Organization"
-	OwnerIDs   map[string]string // login -> node ID
-	Repos      map[string]string // "owner/name" -> node ID
-	Projects   []*Project
+	OwnerTypes   map[string]string // login -> "User" | "Organization"
+	OwnerIDs     map[string]string // login -> node ID
+	Repos        map[string]string // "owner/name" -> node ID
+	Projects     []*Project
+	Issues       map[string][]*Issue       // "owner/name" -> issues
+	PullRequests map[string][]*PullRequest // "owner/name" -> PRs
 }
 
 // NewServer は空の fake を返す。
 func NewServer() *Server {
 	return &Server{
-		OwnerTypes: map[string]string{},
-		OwnerIDs:   map[string]string{},
-		Repos:      map[string]string{},
+		OwnerTypes:   map[string]string{},
+		OwnerIDs:     map[string]string{},
+		Repos:        map[string]string{},
+		Issues:       map[string][]*Issue{},
+		PullRequests: map[string][]*PullRequest{},
 	}
 }
 
@@ -85,6 +89,10 @@ func (s *Server) Do(query string, vars map[string]interface{}, response interfac
 		return s.doLink(vars, response)
 	case strings.Contains(query, "repositoryOwner"):
 		return s.doOwnerID(vars, response)
+	case strings.Contains(query, "pullRequest(number:"):
+		return s.doPullRequestQuery(vars, response)
+	case strings.Contains(query, "issue(number:"):
+		return s.doIssueQuery(vars, response)
 	case strings.Contains(query, "repository(owner:"):
 		return s.doRepoID(vars, response)
 	case strings.Contains(query, "projectV2(number:"):
