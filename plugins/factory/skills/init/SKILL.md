@@ -38,23 +38,26 @@ gh label create "priority:low" --color C5DEF5 --description "優先度: 低" --f
 gh label create "merge:agent" --color 5319E7 --description "agent がマージまで実行してよい(人間が付与。無ければ人間マージが既定)" --force
 ```
 
-`merge:agent` はマージ軸のラベルで、着手軸(`agent-ok` / `agent-wip` / `needs-human`)と直交する。hook ゲート(#14)がマージ可否の判定に使う。
+`merge:agent` はマージ軸のラベルで、着手軸(`agent-ok` / `agent-wip` / `needs-human`)と直交する。hook ゲート(#14)がマージ可否の判定に使う。付与は issue の時点で行う: **AI が merge-policy(プリセット)を基に「このタスクは agent マージ可か」を提案し(groom / triage の必須アジェンダ)、人間が承認して付与する**。
 
 ### 3. Projects ボード(既定で作成)
 
 `project` スコープがあれば(`gh auth status` で確認)、ボードを**既定で作成する**。スコープがなければ `gh auth refresh -s project` を案内する。ユーザーが不要と明言した場合のみラベル運用にフォールバックする(**ラベルのみでも全スキルは動作する**)。
 
 ```bash
+# 正準ボード(factory が公開するテンプレート)からのコピーを優先。
+# フィールド・ビューごと複製されるため Status の手作業が不要になる(#15)
+gh project copy <template-number> --source-owner <canonical-owner> --target-owner <owner> --title "<repo> board"
+
+# コピー元にアクセスできない場合のフォールバック
 gh project create --owner <owner> --title "<repo> board"
+
 gh project link <number> --owner <owner>
 ```
 
 **途中導入・再実行時の転記**: ボードが存在するのに未登録の open issue があれば `gh project item-add` で登録し、ラベルから Status を同期する(`agent-ok` → Ready、`agent-wip` → In Progress、`needs-human` → Spec、いずれも無し → Inbox)。ラベル運用で始めたリポジトリも、init の再実行だけでボード運用へ移行できる。
 
-CLI では組み込み Status フィールドの選択肢を編集できないため、以下は Web UI での手作業として完了報告のチェックリストに載せる:
-
-- Status の選択肢を `Inbox / Spec / Ready / In Progress / In Review / Done` に変更
-- issue の auto-add ワークフローを有効化
+正準ボードのコピーで Status 選択肢(`Inbox / Spec / Ready / In Progress / In Review / Done`)は複製される想定(正準ボードの整備・検証と、コピーで埋まらない部分を自動化する bin は #15)。フォールバック作成になった場合の Status 選択肢の変更と、issue の auto-add ワークフローの有効化は、残る手作業として完了報告のチェックリストに載せる。
 
 ### 4. 憲法の設置(ADR 0000)
 

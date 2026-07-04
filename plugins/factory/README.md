@@ -59,4 +59,4 @@ flowchart LR
 | `agent-wip` | エージェント作業中(ミューテックス) |
 | `needs-human` | 人間の判断待ち。エージェントは触らない |
 | `priority:high` / `priority:low` | 優先度 |
-| `merge:agent` | マージ軸(着手軸と直交)。人間が付与した issue のみ agent がマージまで実行。無ければ人間マージが既定 |
+| `merge:agent` | マージ軸(着手軸と直交)。issue の時点で AI が merge-policy を基に提案し、人間が承認して付与。付いていれば agent がマージまで実行、無ければ人間マージが既定 |
