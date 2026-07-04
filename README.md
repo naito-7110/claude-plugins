@@ -4,3 +4,4 @@
 - `git-workflows`
 - `docs`
 - `dev-team`
+- `factory`
