@@ -8,11 +8,6 @@
       "name": "git-workflows",
       "description": "git workflow helpers",
       "source": "./plugins/git-workflows"
-    },
-    {
-      "name": "dev-team",
-      "description": "GitHub Projects + Issues based dev team workflow",
-      "source": "./plugins/dev-team"
     }
   ]
 }
