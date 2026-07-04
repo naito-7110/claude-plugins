@@ -11,7 +11,7 @@
 | NotFound | 対象が存在しない | 404 |
 | AlreadyModified | 楽観ロックの競合(concurrency-process) | 412 |
 | Forbidden | 認可エラー(権限不足。authorization) | 403 |
-| Unauthenticated | 未認証(通常は境界層が先に弾くため補完用) | 401 |
+| Unauthenticated | 認証済みでない = 「誰か」を確立できていない(基準は authorization プリセットの 401/403 規定。通常は境界層が先に弾くため補完用) | 401 |
 | ValidationFailed | 入力検証エラー | 422 |
 | Conflict | 業務上の競合(重複登録など) | 409 |
 | Unexpected | 予期しない失敗(ドメイン例外の到達など) | 500 |
