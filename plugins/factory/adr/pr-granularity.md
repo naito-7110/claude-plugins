@@ -26,11 +26,6 @@ factory では人間のレビューがマージゲートであり、「人間が
 - 未完成の機能は feature-flags の背後に置き、main を常にリリース可能に保ったまま、成果物・レイヤーごとに PR を積む
 - 分割した PR には依存順を明示する(先行 PR の番号を本文に書く)
 
-### 参考
-
-- [Findy: PR の粒度](https://tech.findy.co.jp/entry/2024/10/04/070000)
-- [Findy の爆速開発を支える Pull Request の粒度](https://speakerdeck.com/starfish719/findynobao-su-kai-fa-wozhi-erupull-requestnoli-du)
-
 ## トレードオフ
 
 - **得るもの**: レビュー時間の短縮と精度の向上・並行開発でのコンフリクト最小化・revert の容易さ
