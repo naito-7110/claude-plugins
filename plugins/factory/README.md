@@ -16,6 +16,8 @@
 - **ローカル ADR**: プロジェクト固有の決定。技術選定(「frontend は Vue」の類)は理由・代替案つきでここに記録する(改訂は /factory:adr、人間承認必須)
 - **スタック事実**: 決定ではなく**事実**(検証コマンド・ビルド手順)。リポジトリ自体(CI 設定・マニフェスト・Makefile)から導出して CLAUDE.md に記録。`/factory:init` が生成・更新する
 
+ポータブル原則の実体は [`adr/`](./adr/README.md) に同梱する**プリセット ADR コーパス**(参照モデル)。対象リポジトリへはコピーせず、スキルが `${CLAUDE_PLUGIN_ROOT}/adr/` を直接読むため、**プラグインの更新 = 全プロジェクトへの改訂の配布**になる。ローカル ADR が frontmatter で `Overrides: <slug>` を宣言すると、そのプロジェクトでは該当プリセットよりローカルが優先される。
+
 ```mermaid
 flowchart LR
     subgraph human[人間ゲート]

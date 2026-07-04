@@ -1,6 +1,6 @@
 ---
 name: init
-description: Set up the factory in a repository (idempotent): create operation labels, optionally a Projects board, generate the constitution (ADR 0000) through dialogue, derive stack facts into CLAUDE.md, and scaffold .agents/
+description: Set up the factory in a repository (idempotent): create operation labels, a Projects board, install the constitution guidance (preset ADR reference + local docs/adr scaffold), derive stack facts into CLAUDE.md, and scaffold .agents/
 tools:
   - Bash(gh auth status, gh repo view, gh label create, gh label list, gh project list, gh project create, gh project link, gh api, git ls-files, git check-ignore)
   - AskUserQuestion
@@ -61,50 +61,36 @@ gh project link <number> --owner <owner>
 
 正準ボードのコピーで Status 選択肢(`Inbox / Spec / Ready / In Progress / In Review / Done`)は複製される想定(正準ボードの整備・検証と、コピーで埋まらない部分を自動化する bin は #15)。フォールバック作成になった場合の Status 選択肢の変更と、issue の auto-add ワークフローの有効化は、残る手作業として完了報告のチェックリストに載せる。
 
-### 4. 憲法の設置(ADR 0000)
+### 4. 憲法の案内の設置(プリセット参照 + 固有分のみ対話)
 
-`docs/adr/` を確認する:
+憲法は三層(プリセット / ローカル ADR / スタック事実)。**プリセットはプラグイン同梱**(`${CLAUDE_PLUGIN_ROOT}/adr/`)の参照モデルで、リポジトリへ**コピーしない**(プラグイン更新に追従させるため)。一括適用で選択 UX は設けない。
 
-- **`0000-*.md` が既にある** → 読み込んで内容を要約提示し、変更提案があれば /factory:adr(改憲手続き)へ誘導する。**このスキルでは既存 ADR を書き換えない**
-- **ない** → 対話で生成する。`AskUserQuestion` で以下を 1 論点ずつ確定する(最小で始め、フライホイールで育てる。全部を初回に決めない):
-  1. テスト方針(例: 失敗するテストを先に書くか、カバレッジより挙動固定を優先するか)
-  2. PR 粒度の原則(例: 関心事が単一なら大きくてよいか、成果物ごとに分割するか)
-  3. セキュリティベースライン(例: secrets をコードに書かない、認証・認可の変更は必ずエスカレーション)
-  4. エラーハンドリング思想(例: fail-fast か縮退運転か)
+1. **CLAUDE.md にマーカー付きで案内を設置する**(再実行時はマーカー間のみ置換):
+
+````markdown
+<!-- factory:constitution:start (managed by /factory:init — edit via re-run) -->
+## Factory: 憲法
+
+- 開発判断の根拠は二層: factory プラグイン同梱のプリセット ADR(ポータブル原則。一覧はプラグインの `adr/README.md`)+ このリポジトリの `docs/adr/`(プロジェクト固有の決定。技術選定はこちら)
+- スキルはプリセットを `${CLAUDE_PLUGIN_ROOT}/adr/` から読む
+- ローカル ADR が frontmatter で `Overrides: <slug>` を宣言した場合、該当プリセットよりローカルが優先
+- 改訂は /factory:adr(人間承認必須)。検証コマンド等の事実は下のスタック事実の節へ
+<!-- factory:constitution:end -->
+````
+
+2. **`docs/adr/` を確認する**:
+   - 既存の ADR があれば読み込んで要約提示する(**書き換えない**。変更提案は /factory:adr へ誘導)
+   - 無ければ `docs/adr/README.md`(NNNN 採番・`Overrides: <slug>` 規約・/factory:adr 経由の改訂、を説明する小さな案内)を作成する
+
+3. **対話はプロジェクト固有の原則のみ**: プリセットの守備範囲(テスト方針・セキュリティ 2 領域・ログ・フラグ・PR 粒度・エラーハンドリング・認可・排他制御・API 設計・i18n・パフォーマンス・仕様すり合わせ・マージポリシー)を一覧提示し、**「プリセットで足りない、このプロジェクト固有の原則・制約」だけ**を `AskUserQuestion` で確認する。確定した固有原則はローカル ADR として `docs/adr/` に起こす(出なければ起こさない。最小で始め、フライホイールで育てる)
 
 **ガード(三層の切り分け)**: 対話で挙がった内容は三層に振り分ける。
 
-1. **スタック非依存の原則** → ADR 0000 に書く
-2. **技術選定**(「frontend は Vue で組む」「ORM は Prisma」の類)→ 立派なアーキテクチャ決定なので捨てないが、0000 には混ぜず**専用のローカル ADR**(理由・代替案つき)として起こすことを案内する(起こすのは /factory:adr の仕事)
+1. **スタック非依存の原則** → プリセットに既にあるなら重複記録しない(該当プリセットを示す)。プリセットに無い汎用な原則は「プリセット候補」としてプラグインへの PR を提案する
+2. **技術選定**(「frontend は Vue で組む」「ORM は Prisma」の類)→ 立派なアーキテクチャ決定なので捨てないが、**専用のローカル ADR**(理由・代替案つき)として起こす
 3. **事実**(検証コマンド・ビルド手順)→ 手順 5 のスタック事実(CLAUDE.md)へ
 
 目的はポータブルな原則とプロジェクト固有の決定を混ぜないこと。どちらも憲法の一部だが、置き場が違う。
-
-テンプレート(`docs/adr/0000-constitution.md`):
-
-````markdown
-# ADR 0000: 開発憲法
-
-- Status: accepted
-- Date: <today>
-
-このリポジトリで働くすべてのエージェント・人間の判断の根拠。
-改訂は /factory:adr(人間承認必須)を通す。
-
-> **書いてよいこと**: スタック非依存の原則(テスト方針・セキュリティ・アーキテクチャ原則・PR 粒度)。
-> **書いてはいけないこと**: 技術選定(フレームワーク・ライブラリ・言語の指名)。それは専用のローカル ADR として起こす(検証コマンド等の事実は CLAUDE.md のスタック事実へ)。
-
-## 原則
-
-### 1. <対話で確定した原則>
-
-<内容と、なぜそうするか>
-
-## 運用ラベル
-
-agent-ok / agent-wip / needs-human / priority:high / priority:low(意味は factory README 参照)。
-種別ラベル(feat / bugfix 等)とは直交する。
-````
 
 ### 5. スタック事実の導出 → CLAUDE.md
 
@@ -145,7 +131,7 @@ CLAUDE.md が存在しなければ新規作成する。
 | --- | --- |
 | ラベル 6 種 | ✅ / スキップ(理由) |
 | Projects ボード | ✅ / スキップ |
-| ADR 0000 | ✅ 新規 / 既存を尊重 |
+| 憲法(CLAUDE.md マーカー節 + docs/adr/ 案内) | ✅ / 既存 ADR を尊重 |
 | CLAUDE.md スタック事実 | ✅ |
 | `.agents/` | ✅ |
 
