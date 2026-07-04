@@ -14,6 +14,10 @@ usage() {
 ProjectV2 ボードの組み込み Status フィールドの選択肢が
 Inbox / Spec / Ready / In Progress / In Review / Done(この順)で
 あることを検証します。owner は user / organization のどちらでも可。
+
+あわせてビュー構成(Table / Board / Roadmap の各レイアウトが 1 つ以上
+あるか)も検査します。ビュー不足は警告のみで、終了コードには影響しません
+(正準ボードからの複製で揃う想定。Status が唯一のハードゲート)。
 USAGE
 }
 
@@ -39,16 +43,27 @@ case "$OWNER_TYPE" in
   *) echo "owner 種別を判定できません: $OWNER_TYPE" >&2; exit 1 ;;
 esac
 
-ACTUAL=$(gh api graphql \
-  -f query="query(\$login:String!,\$number:Int!){ $ROOT(login:\$login){ projectV2(number:\$number){ field(name:\"Status\"){ ... on ProjectV2SingleSelectField { options { name } } } } } }" \
+DATA=$(gh api graphql \
+  -f query="query(\$login:String!,\$number:Int!){ $ROOT(login:\$login){ projectV2(number:\$number){ field(name:\"Status\"){ ... on ProjectV2SingleSelectField { options { name } } } views(first:20){ nodes { name layout } } } } }" \
   -f login="$OWNER" -F number="$NUMBER" \
-  --jq ".data.$ROOT.projectV2.field.options | map(.name)")
+  --jq ".data.$ROOT.projectV2")
+ACTUAL=$(jq -c '.field.options | map(.name)' <<<"$DATA")
 
-if [ "$(jq -cn "$EXPECTED")" = "$(jq -c . <<<"$ACTUAL")" ]; then
+if [ "$(jq -cn "$EXPECTED")" = "$ACTUAL" ]; then
   echo "OK: $OWNER/projects/$NUMBER の Status は factory の 6 値です"
 else
   echo "NG: Status の選択肢が期待と異なります" >&2
   echo "  期待: $(jq -cn "$EXPECTED")" >&2
-  echo "  実際: $(jq -c . <<<"$ACTUAL")" >&2
+  echo "  実際: $ACTUAL" >&2
   exit 1
 fi
+
+# ビュー検査(警告のみ。Table / Board / Roadmap が各 1 つ以上あるか)
+LAYOUTS=$(jq -r '.views.nodes | map(.layout) | unique | .[]' <<<"$DATA")
+for want in TABLE_LAYOUT BOARD_LAYOUT ROADMAP_LAYOUT; do
+  if grep -qx "$want" <<<"$LAYOUTS"; then
+    echo "OK: ${want%_LAYOUT} ビューあり"
+  else
+    echo "警告: ${want%_LAYOUT} レイアウトのビューがありません(正準ボードからの複製で揃う想定)"
+  fi
+done

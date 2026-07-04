@@ -84,6 +84,6 @@ cat <<CHECKLIST
   [ ] auto-add ワークフローの有効化(issue を自動で Inbox に入れる):
       $URL → 右上「…」→ Workflows → Auto-add to project
       → 対象リポジトリを選択、フィルタ「is:issue is:open」、Status = Inbox で有効化
-  [ ] ビューの確認: 正準ボードのビュー(Board / Table / Needs human / Night queue)が
-      複製されているか確認する(正準ボード側に未設定の場合は複製されません)
+  [ ] ビューの確認: 正準ボードのビュー(Table / Board / Roadmap)が複製されているか
+      (上の verify が警告を出した場合のみ。正準ボード側に未設定だと複製されません)
 CHECKLIST
