@@ -13,9 +13,9 @@ tools:
 
 ### 0. 運転モードの確認(人間のスイッチ。fail-closed = 既定は走らない)
 
-- **`.factory/mode` が `auto` でなければ即終了する**(ファイルが無い・`manual` = 無人運転しない)。auto への切替はコミットで行う(誰がいつ無人運転を許可したか履歴に残る)
-- **`.agents/paused` が存在したら即終了する**(即時の一時停止スイッチ: `touch .agents/paused` で止まり、`rm` で再開。コミット不要・ローカル即効)
-- どちらの終了も**正常系**(ログにのみ記録し、issue コメントは出さない — 毎 tick のスパム防止。設定異常の記録は次の前提チェックの役目)
+- **`factory mode gate` を実行し、非ゼロなら即終了する**。運転状態(auto / manual / paused)は bin が管理するローカル状態(`.agents/` 配下・コミットしない — 履歴を濁さない)で、既定は manual(明示的に `factory mode auto` されたマシンだけが無人運転する)
+- 状態ファイルを直接触らない(操作は常に `factory mode ...` 経由 — orchestrate に「止めて」と頼むフローも同じ bin に落ちる)
+- この終了は**正常系**(ログにのみ記録し、issue コメントは出さない — 毎 tick のスパム防止。設定異常の記録は次の前提チェックの役目)
 
 ### 1. 前提チェック(fail-closed: 不成立なら何も実行せず終了)
 
@@ -62,9 +62,11 @@ done
 
 - launchd / systemd timer も方式 A の同類として使える
 - ログは `.agents/night.log`(gitignore 領域)
-- **tick は入れっぱなしでよい**。走ってよいかは人間のスイッチが決める:
-  - `.factory/mode`(コミット対象): `auto` = 無人運転を許可 / `manual`(既定) = tick が来ても何もしない。切替はコミット = 意思決定として履歴に残る
-  - `.agents/paused`(ローカル・即効): 存在すれば一時停止。`touch` で止め `rm` で再開(「今すぐ止めたい」用)
+- **tick は入れっぱなしでよい**。走ってよいかは人間のスイッチ(bin)が決める:
+  - `factory mode auto` / `manual`: 無人運転の許可 / 禁止(既定 manual。状態はローカル・非コミット)
+  - `factory mode pause` / `resume`: 即時の一時停止 / 再開
+  - `factory tick install` / `remove` / `status`: crontab のマーカーブロックを冪等に管理(手で crontab を書いてもよい)
+  - **人間は orchestrate(PM)との会話から頼めばよい**(「今夜は止めて」→ PM が `factory mode manual` を実行)
 - 停止はいつでも安全(工場の耐久状態はすべて GitHub にあるため、どのタイミングで止めても壊れない)
 - issue イベント駆動(webhook で即起動)は将来の拡張候補(現状は tick 間隔の短縮で近似できる)
 

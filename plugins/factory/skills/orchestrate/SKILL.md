@@ -80,6 +80,10 @@ work の完了報告を受けたら:
 
 state: `dispatched` / `in-progress` / `pr-created` / `escalated` / `done`
 
+## 運転制御(人間からの依頼)
+
+人間から unattended 運転の停止・再開・状態確認を頼まれたら、**`factory mode` / `factory tick` を実行して応える**(「今夜は止めて」→ `factory mode manual`、「今すぐ止めて」→ `factory mode pause`、「状態は?」→ `factory mode status`)。状態ファイルを直接触らない。
+
 ## 禁止事項
 
 - 自分でコードを書く・issue 本文を編集する(それぞれ work / groom の権限)
