@@ -66,9 +66,12 @@ func (l Layout) DomainDoc(domain, doc string) string {
 }
 
 // DefaultLayout は documentation プリセット / init scaffold の正準配置。
+// 配置の基準は「誰の持ち物か」(#62 の C 案): factory が生成し機械が読む
+// 運用ファイルは .factory/(コミット対象の dotdir)、人間の一次文書
+// (ドメイン知識)は標準の docs/ に置く。
 var DefaultLayout = Layout{
-	MapReadme:     "docs/factory/README.md",
-	OwnershipFile: "docs/factory/ownership.yml",
+	MapReadme:     ".factory/README.md",
+	OwnershipFile: ".factory/ownership.yml",
 	DomainsDir:    "docs/domains",
 	DomainDocs:    []string{"README.md", "contracts.md"},
 	DocsDir:       "docs",
