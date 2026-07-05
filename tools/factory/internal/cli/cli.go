@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/board"
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/release"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/tick"
 )
 
@@ -17,8 +18,9 @@ type Deps struct {
 	CurrentRepo   func() (string, error)
 	CurrentBranch func() (string, error) // カレントブランチ(unborn でも名前を返す)
 	Crontab       tick.Crontab
-	TickExec      tick.Exec // tick run の claude 起動(プロセス境界)
-	In            io.Reader // hook JSON の入力(gate)
+	TickExec      tick.Exec   // tick run の claude 起動(プロセス境界)
+	ReleaseGit    release.Git // release のタグ操作(プロセス境界)
+	In            io.Reader   // hook JSON の入力(gate)
 	Out           io.Writer
 	Err           io.Writer
 }
@@ -32,7 +34,7 @@ const (
 	ExitBlock = 2
 )
 
-const usage = `使い方: factory <board|issue|pr|docs|flags|mode|tick|gate|branch> <サブコマンド> [オプション]
+const usage = `使い方: factory <board|issue|pr|docs|flags|mode|tick|gate|branch|release> <サブコマンド> [オプション]
 
 サブコマンド:
   board copy    正準ボード(factory board template)を対象 owner へ複製する
@@ -100,6 +102,12 @@ const usage = `使い方: factory <board|issue|pr|docs|flags|mode|tick|gate|bran
                 main 直 push / push ゲート / マージゲート / 無人 3 種を判定する。
                 ブロック時は理由を stderr に出して exit 2(hook 契約)、通過は exit 0
                 --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
+  release <tag> リリースタグを安全に作成して push する(デプロイの引き金 = 人間の操作)
+                対象 SHA は常にリモートの ref から解決し、ローカル HEAD は一切見ない。
+                既存タグ(ローカル / リモート)があれば失敗し、上書き・force は提供しない
+                --remote <name>        push 先のリモート(既定: origin)
+                --ref <branch>         タグを打つブランチ(既定: リモートの default branch)
+                --dry-run              検証と対象の表示のみ(変更しない)
 `
 
 // Run は引数を解釈してサブコマンドを実行し、終了コードを返す。
@@ -107,6 +115,10 @@ func Run(args []string, deps Deps) int {
 	// gate は単語 1 つのサブコマンド(hook から exec される入口)。
 	if len(args) >= 1 && args[0] == "gate" {
 		return runGate(args[1:], deps)
+	}
+	// release は positional 引数(タグ名)を取るサブコマンド。
+	if len(args) >= 1 && args[0] == "release" {
+		return runRelease(args[1:], deps)
 	}
 	if len(args) < 2 {
 		fmt.Fprint(deps.Err, usage)

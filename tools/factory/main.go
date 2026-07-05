@@ -20,6 +20,7 @@ import (
 
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/board"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/cli"
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/release"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/tick"
 )
 
@@ -42,6 +43,7 @@ func main() {
 		CurrentBranch: currentBranch,
 		Crontab:       tick.System{},
 		TickExec:      tick.SystemExec{Stdout: os.Stdout, Stderr: os.Stderr},
+		ReleaseGit:    release.SystemGit{},
 		In:            os.Stdin,
 		Out:           os.Stdout,
 		Err:           os.Stderr,
