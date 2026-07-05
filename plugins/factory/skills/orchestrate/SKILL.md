@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: PM オーケストレーター。台帳で状態を復元し、ボード(ラベル)を読んで Inbox のトリアージ・Spec の仕様揉み(対話時のみ)・Ready からの並列配車(最大 2)・完了とエスカレーションの回収を回す。「バックログを進めて」「開発を回して」と頼まれたとき、または night からの縮退呼び出しで使う
+description: PM オーケストレーター(唯一の駆動ループ)。台帳で状態を復元し、ボード(ラベル)を読んで Inbox のトリアージ・Spec の仕様揉み(attended 時のみ)・Ready からの並列配車・回収を回す。モードは attended / unattended の 2 値で「夜間」という区別は持たない。「バックログを進めて」と頼まれたとき、または cron 起動口(night)からの unattended 呼び出しで使う
 tools:
   - Bash(gh, git worktree list, factory)
   - Task
@@ -11,7 +11,12 @@ tools:
   - Grep
 ---
 
-**自分ではコードを書かない。状態を読んで配車と回収に徹する。** 対話・無人の両方で動くが、無人時は仕様揉み(人間ゲート)をスキップし、`AskUserQuestion` を使わない。
+**自分ではコードを書かない。状態を読んで配車と回収に徹する。**
+
+モードは 2 値(時刻とは無関係 — レーン統一の決定、#4):
+
+- **attended**(人間がいる): 全機能。Spec の仕様揉みも人間と行える
+- **unattended**(`.agents/unattended` sentinel あり。管理は起動口の責務): 人間ゲートが必要な仕事(groom・エスカレーション解決)は**キューに残すだけ**で触らず、機械ゲートで進む仕事(triage・work・merge:agent マージ)だけを進める。`AskUserQuestion` 禁止
 
 ## 0. 状態の復元(必ず最初に行う)
 
@@ -36,13 +41,19 @@ Projects ボードがあれば Status で、なければラベルで代用する
 
 ## 3. 配車(Ready → In Progress)
 
+**制動条件(この 2 つだけが暴走制御。当たらない限り、空き次第どんどん配車してよい)**:
+
+- **人間レーンの PR 滞留**: 人間レビュー待ちの open PR(merge:agent なしの In Review)が **3 件以上** → 新規配車を停止し、レビュー滞留として報告する(作る速度を人間がレビューできる速度に合わせる)
+- **エスカレーション滞留**: 未解決の `needs-human` が **3 件以上** → 新規配車を停止する(系統的な問題か、人間の処理能力を超えている兆候 — fail-closed)
+
+手順:
+
 1. **候補の選別**: Ready(`agent-ok` あり・`needs-human` なし)から、`依存: #N` が解消済みのものを priority:high > 無印 > priority:low の順に並べる
 2. **独立性の判定**: 同時に走らせる issue 同士が独立であること。`.factory/ownership.yml` があれば**所有ドメインが重ならないこと**を機械判定に使い、無ければ影響範囲を軽く調査して同じファイル群・モジュールを触らない組を選ぶ
-3. **backpressure**: open の In Review 状態の PR が **3 件以上なら配車を停止**し、レビュー滞留として報告する(作る速度をレビュー可能な速度に合わせる)
-4. **同時実行は最大 2**。空きスロット分だけ、Agent tool で work を**並列に**起動する。配車プロンプトは次の規約に従う(hook の配車ゲートが検証する):
+3. **同時実行数は資源の都合で調整する**(暴走制御ではない)。目安 2〜4 で開始し、マシン・レート制限に応じて増減してよい。Agent tool で work を**並列に**起動する。配車プロンプトは次の規約に従う(hook の配車ゲートが検証する):
    - **issue 番号を必ず含める**(例:「issue #42 に対して /factory:work を実行せよ」)
    - 作業は専用 worktree(`.worktrees/issue-<n>`)内で行うこと・マージ禁止(merge:agent の場合の扱いは work の手順 10 に従う)を明記する
-5. 配車の直後に台帳を更新する(state: dispatched)
+4. 配車の直後に台帳を更新する(state: dispatched)
 
 ## 4. 回収
 
@@ -73,5 +84,5 @@ state: `dispatched` / `in-progress` / `pr-created` / `escalated` / `done`
 
 - 自分でコードを書く・issue 本文を編集する(それぞれ work / groom の権限)
 - 依存や独立性が確認できない issue の同時配車(fail-closed: 1 件ずつに落とす)
-- 無人時の `AskUserQuestion`・groom の実行
-- backpressure 中の配車
+- unattended 時の `AskUserQuestion`・groom の実行
+- 制動条件(PR 滞留・エスカレーション滞留)成立中の新規配車
