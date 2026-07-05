@@ -32,7 +32,7 @@ tools:
 
 ### 2. 憲法の選択読み
 
-`${CLAUDE_PLUGIN_ROOT}/adr/README.md` の選択読みマッピングに従う(常時読みセット + diff 予定領域の分)。ローカル `docs/adr/` と、`docs/factory/ownership.yml` があれば管轄ドメインの `docs/domains/<domain>/`(README・contracts)も読む。
+`${CLAUDE_PLUGIN_ROOT}/adr/README.md` の選択読みマッピングに従う(常時読みセット + diff 予定領域の分)。ローカル `docs/adr/` と、`.factory/ownership.yml` があれば管轄ドメインの `docs/domains/<domain>/`(README・contracts)も読む。
 
 ### 3. 影響調査 → ジャーナル
 
