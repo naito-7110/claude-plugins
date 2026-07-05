@@ -18,5 +18,5 @@
 | --- | --- | --- |
 | tools/atelier(Go) | ビルド: `go build ./...` / テスト: `go test ./...` / lint: `golangci-lint run`(いずれも tools/atelier で) | .github/workflows/atelier-cli.yml |
 | plugins/(markdown) | スタック固有語の混入検査: `grep -riE "vue\|dotnet\|pnpm\|valibot\|msw" <対象>` | 開発規律(PR テスト節の実績) |
-| リリース | `atelier release atelier/vX.Y.Z`(人間のみ。**先に plugin.json + CHANGELOG を上げる**) | tools/atelier/README.md |
+| リリース | `atelier/vX.Y.Z` タグの作成と push(人間のみ・手順は README。**先に plugin.json + CHANGELOG を上げる**) | tools/atelier/README.md |
 <!-- atelier:stack-facts end -->

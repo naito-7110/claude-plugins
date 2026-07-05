@@ -18,7 +18,6 @@ import (
 
 	"github.com/naito-7110/claude-plugins/tools/atelier/internal/board"
 	"github.com/naito-7110/claude-plugins/tools/atelier/internal/cli"
-	"github.com/naito-7110/claude-plugins/tools/atelier/internal/release"
 )
 
 func main() {
@@ -38,7 +37,6 @@ func main() {
 			return repo.Owner + "/" + repo.Name, nil
 		},
 		CurrentBranch: currentBranch,
-		ReleaseGit:    release.SystemGit{},
 		In:            os.Stdin,
 		Out:           os.Stdout,
 		Err:           os.Stderr,

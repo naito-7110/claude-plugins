@@ -9,9 +9,10 @@
 //  2. push ゲート: agent/issue-<n>-* ブランチの push 前に issue の状態を検証
 //  3. マージゲート: PR↔issue 整合 + Closes 紐づけ + merge:agent + CI green +
 //     別コンテキストレビュア(atelier-review status = success)
-//  4. リリースゲート: atelier release の実行(--dry-run を除く)とタグ push を
-//     常にブロック(merge-policy: デプロイ = 人間の tag push。release を便利
-//     コマンド化した瞬間に AI が押せる引き金になるため、hook で塞ぐ — #101)
+//  4. リリースゲート: リリースコマンドの起動(--dry-run を除く)とタグ push を
+//     常にブロック(merge-policy: デプロイ = 人間の tag push)。release
+//     サブコマンドは #129 で撤去済みだが、旧版バイナリ(factory 名義を含む)が
+//     残存する環境への防御として起動検出は維持する
 //
 // issue / pr verify はプロセス起動ではなく internal/verify の関数呼び出しで行う
 // (判定一元化 — #38 と同じ方針)。ブロックの理由は呼び出し側(cli)が stderr に
@@ -73,10 +74,10 @@ var (
 
 	branchIssuePattern = regexp.MustCompile(`^agent/issue-([0-9]+)`)
 
-	// リリースゲート: atelier release の起動(パス付き .agents/bin/atelier も拾う)と、
+	// リリースゲート: リリースコマンドの起動(パス付き・旧名 factory バイナリも拾う)と、
 	// タグを push するコマンド(--tags / refs/tags/ / atelier/v* 引数)。
-	atelierReleasePattern = regexp.MustCompile(`(^|[;&|\s/])atelier\s+release(\s[^;&|]*|)($|[;&|])`)
-	tagPushPattern        = regexp.MustCompile(`push[^;&|]*(\s--tags(\s|$|[;&|])|refs/tags/|\satelier/v)`)
+	releaseCmdPattern = regexp.MustCompile(`(^|[;&|\s/])(atelier|factory)\s+release(\s[^;&|]*|)($|[;&|])`)
+	tagPushPattern    = regexp.MustCompile(`push[^;&|]*(\s--tags(\s|$|[;&|])|refs/tags/|\s(atelier|factory)/v)`)
 )
 
 // Check は hook 入力を判定し、ブロックすべきなら理由(非空)を返す。
@@ -133,17 +134,17 @@ func checkBash(input Input, deps Deps) string {
 }
 
 // checkRelease はリリースゲート(merge-policy: デプロイ = 人間の tag push)。
-//   - atelier release の実行をブロックする。ただし --dry-run を含む起動は許可
+//   - リリースコマンド(旧版バイナリ含む)の実行をブロックする。ただし --dry-run を含む起動は許可
 //     (検証は無害で、AI がリリース状態を確認する用途は正当)
 //   - タグを push するコマンド(--tags / refs/tags/ / atelier/v* 引数)をブロックする
 func checkRelease(cmd string) string {
-	for _, match := range atelierReleasePattern.FindAllStringSubmatch(cmd, -1) {
-		if !strings.Contains(match[2], "--dry-run") {
+	for _, match := range releaseCmdPattern.FindAllStringSubmatch(cmd, -1) {
+		if !strings.Contains(match[3], "--dry-run") {
 			return "リリースタグは人間の操作です(merge-policy: デプロイ = 人間の tag push)。--dry-run での確認は可能です"
 		}
 	}
 	if gitPushPattern.MatchString(cmd) && tagPushPattern.MatchString(cmd) {
-		return "タグの push は人間の操作です(merge-policy: デプロイ = 人間の tag push。リリースは人間が atelier release を実行してください)"
+		return "タグの push は人間の操作です(merge-policy: デプロイ = 人間の tag push。手順は tools/atelier/README.md のリリース節を参照)"
 	}
 	return ""
 }
