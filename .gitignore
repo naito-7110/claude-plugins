@@ -1,4 +1,7 @@
 .direnv
 
+# goreleaser のローカル出力
+tools/factory/dist/
+
 # Claude Code agent worktrees
 .claude/worktrees/
