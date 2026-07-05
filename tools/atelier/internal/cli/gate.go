@@ -22,8 +22,9 @@ func runGate(args []string, deps Deps) int {
 	}
 
 	// hooks は「現在のディレクトリ」で実行される(公式仕様)。相対パス
-	// (.atelier/・git コマンド)の基準をプロジェクトルートに固定する
-	// (bash ラッパーの cd と同じ。失敗しても bash 版同様に続行する)。
+	// (.atelier/ の判定と、ブランチ解決のフォールバック基準)をプロジェクト
+	// ルートに固定する(bash ラッパーの cd と同じ。失敗しても bash 版同様に
+	// 続行する)。ブランチ判定そのものは hook JSON の cwd 基準(#138)。
 	if dir := os.Getenv("CLAUDE_PROJECT_DIR"); dir != "" {
 		_ = os.Chdir(dir)
 	}
@@ -37,9 +38,11 @@ func runGate(args []string, deps Deps) int {
 	reason, err := gate.Check(input, gate.Deps{
 		NewClient: func() (verify.GraphQL, error) { return deps.NewClient() },
 		Repo:      deps.CurrentRepo,
-		Branch:    deps.CurrentBranch,
-		Managed:   isManaged(*root),
-		Err:       deps.Err,
+		// ブランチ解決はディレクトリ指定つき(gate 側がコマンドの実効
+		// ディレクトリ — -C / hook cwd — を選んで渡す。#138)。
+		Branch:  deps.CurrentBranch,
+		Managed: isManaged(*root),
+		Err:     deps.Err,
 	})
 	if err != nil {
 		fmt.Fprintf(deps.Err, "atelier-gate: %v\n", err)

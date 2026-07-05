@@ -44,14 +44,23 @@ func main() {
 	os.Exit(cli.Run(os.Args[1:], deps))
 }
 
-// currentBranch はカレントブランチ名を返す。symbolic-ref はコミットゼロ
-// (unborn)のブランチでも名前を返すため先に試す(bash 版 atelier-gate.sh と同一)。
-func currentBranch() (string, error) {
-	out, err := exec.Command("git", "symbolic-ref", "--short", "HEAD").Output()
+// currentBranch は dir のカレントブランチ名を返す(dir が空ならプロセスの
+// カレントディレクトリ)。worktree では checkout 中のブランチがディレクトリ
+// ごとに異なるため、`git -C dir` で判定基準を揃える(#138)。symbolic-ref は
+// コミットゼロ(unborn)のブランチでも名前を返すため先に試す(bash 版
+// atelier-gate.sh と同一)。
+func currentBranch(dir string) (string, error) {
+	gitArgs := func(args ...string) []string {
+		if dir == "" {
+			return args
+		}
+		return append([]string{"-C", dir}, args...)
+	}
+	out, err := exec.Command("git", gitArgs("symbolic-ref", "--short", "HEAD")...).Output()
 	if err == nil {
 		return strings.TrimSpace(string(out)), nil
 	}
-	out, err = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	out, err = exec.Command("git", gitArgs("rev-parse", "--abbrev-ref", "HEAD")...).Output()
 	if err != nil {
 		return "", fmt.Errorf("カレントブランチを解決できません: %w", err)
 	}

@@ -1,5 +1,9 @@
 # Changelog
 
+## 未リリース
+
+- **ゲートのブランチ判定を hook cwd 基準に修正**(#138): カレントブランチの解決をプロジェクトルート固定から hook stdin JSON の `cwd`(ツールが実行されるディレクトリ)基準へ変更。ルート checkout が main のまま worktree 内から行う refspec 無し `git push` / `git push origin HEAD` が、ルートのブランチで「main への直 push」と誤判定されるバグを解消。`cwd` が無い場合は従来どおりプロジェクトルートで判定(フォールバック)。main への直 push・force push・タグ push のブロックは cwd に依らず維持
+
 ## 1.1.0(2026-07-05)
 
 ゲートの誤爆解消を中心とした改善リリース(破壊的変更なし)。

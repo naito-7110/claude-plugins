@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,8 +39,12 @@ import (
 )
 
 // Input は PreToolUse hook が stdin に渡す JSON のうち、ゲート判定に使う部分。
+// CWD はツール(Bash)が実行されるディレクトリ。worktree では checkout 中の
+// ブランチがルートと異なるため、カレントブランチの判定は CWD 基準で行う
+// (#138。無ければ空文字 = 従来どおりプロジェクトルート判定へフォールバック)。
 type Input struct {
 	ToolName  string `json:"tool_name"`
+	CWD       string `json:"cwd"`
 	ToolInput struct {
 		Command string `json:"command"` // Bash
 	} `json:"tool_input"`
@@ -57,11 +62,15 @@ func ParseInput(r io.Reader) (Input, error) {
 // Deps はゲート判定の実行時依存。GraphQL クライアントとリポジトリは
 // 必要になるまで解決しない(main 直 push の判定は認証なしでも動く)。
 type Deps struct {
-	NewClient  func() (verify.GraphQL, error)
-	Repo       func() (string, error)
-	Branch  func() (string, error) // カレントブランチ(unborn でも名前を返す実装を注入する)
-	Managed bool                   // atelier 管理下か(.atelier/ の有無。呼び出し側が解決する)
-	Err     io.Writer              // verify 所見の出力先(ブロック理由の判断材料)
+	NewClient func() (verify.GraphQL, error)
+	Repo      func() (string, error)
+	// Branch は dir のカレントブランチ(unborn でも名前を返す実装を注入する)。
+	// dir が空ならプロジェクトルート。worktree では checkout 中のブランチが
+	// ディレクトリごとに異なるため、判定はコマンドの実効ディレクトリ
+	// (git の -C、無ければ hook の cwd)基準で行う(#138)。
+	Branch  func(dir string) (string, error)
+	Managed bool      // atelier 管理下か(.atelier/ の有無。呼び出し側が解決する)
+	Err     io.Writer // verify 所見の出力先(ブロック理由の判断材料)
 }
 
 // branchIssuePattern は agent/issue-<n>-* ブランチから issue 番号を取り出す。
@@ -101,9 +110,9 @@ func checkBash(input Input, deps Deps) string {
 		case "atelier", "factory":
 			reason = checkReleaseCmd(args)
 		case "git":
-			reason = checkGit(args, deps)
+			reason = checkGit(args, input.CWD, deps)
 		case "gh":
-			reason = checkGh(args, deps)
+			reason = checkGh(args, input.CWD, deps)
 		}
 		if reason != "" {
 			return reason
@@ -136,10 +145,18 @@ func checkReleaseCmd(args []string) string {
 //   - 宛先が main / master → 直 push(force なら force push)をブロック
 //   - 宛先または push 元が agent/issue-<n> → issue の状態を検証
 //
-// refspec が無い(`git push` のみ)ときは、push 元をカレントブランチ(deps.Branch)
-// にフォールバックする。明示的な refspec があればそれを優先し、hook の cwd
-// (プロジェクトルート)に依存しない(#119: worktree からの push の誤判定を解消)。
-func checkGit(args []string, deps Deps) string {
+// refspec が無い(`git push` のみ)ときは、push 元をカレントブランチに
+// フォールバックする。明示的な refspec があればそれを優先する(#119: worktree
+// からの push の誤判定を解消)。
+//
+// カレントブランチは「コマンドが実際に動くディレクトリ」で解決する(#138):
+// git のグローバル -C があればそのパス(相対なら cwd 起点)、無ければ hook
+// stdin JSON の cwd(= Bash の実行ディレクトリ)、それも無ければプロジェクト
+// ルート。解決に失敗したらプロジェクトルートで再解決する(cwd を非リポジトリへ
+// 移してから -C や cd でルートの main を push する迂回を、従来どおり宛先 main
+// 判定に落とすため — fail-open にしない)。GIT_DIR / --git-dir / 連結 cd の追跡
+// はしない(ADR 0002: 防御は配るが完璧は求めない)。
+func checkGit(args []string, cwd string, deps Deps) string {
 	sub, rest := gitSubcommand(args)
 	if sub != "push" {
 		return ""
@@ -162,7 +179,7 @@ func checkGit(args []string, deps Deps) string {
 		refs = positionals[1:]
 	}
 	// カレントブランチは HEAD 解決と refspec 無しのフォールバックに使う。
-	current, _ := deps.Branch()
+	current := resolveBranch(deps, gitEffectiveDir(args, cwd))
 
 	var srcs, dsts []string
 	tagPush := hasTagsFlag
@@ -207,6 +224,61 @@ func checkGit(args []string, deps Deps) string {
 		}
 	}
 	return ""
+}
+
+// resolveBranch は dir のカレントブランチを返す。解決できなければプロジェクト
+// ルート("")で再解決し、それも失敗なら空文字(従来の「未解決 = 判定材料なし」。
+// refspec 無しの push はゲート対象外になるが、その状況では git 自体も失敗する)。
+// ルートへのフォールバックは #138 以前の「常にルートで判定」の防御水準を下限と
+// して維持するため(解決失敗を素通しにすると、非リポジトリな cwd を経由した
+// bare push がルートの main 判定を逃れる)。
+func resolveBranch(deps Deps, dir string) string {
+	if br, err := deps.Branch(dir); err == nil {
+		return br
+	}
+	if dir == "" {
+		return ""
+	}
+	br, err := deps.Branch("")
+	if err != nil {
+		return ""
+	}
+	return br
+}
+
+// gitEffectiveDir は git セグメントのグローバル -C から、コマンドが実際に動く
+// ディレクトリを求める(相対パスは cwd 起点で合成。複数の -C は git と同じく
+// 順に連結する)。-C が無ければ cwd(hook stdin JSON 由来。無ければ空 =
+// プロジェクトルート)。--git-dir / --work-tree は追わない(ADR 0002)。
+func gitEffectiveDir(args []string, cwd string) string {
+	dir := cwd
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") { // 最初の非オプション = サブコマンドで打ち切り
+			break
+		}
+		if a == "-C" && i+1 < len(args) {
+			v := args[i+1]
+			if filepath.IsAbs(v) || dir == "" {
+				dir = v
+			} else {
+				dir = filepath.Join(dir, v)
+			}
+			i += 2
+			continue
+		}
+		if strings.Contains(a, "=") { // --opt=value は 1 トークン
+			i++
+			continue
+		}
+		if gitValueOpts[a] { // 値を取るオプションは値ごと読み飛ばす
+			i += 2
+			continue
+		}
+		i++
+	}
+	return dir
 }
 
 // gitValueOpts は git のグローバルオプションのうち、次のトークンを値として取るもの
@@ -303,12 +375,12 @@ func hasTagRefPrefix(ref string) bool {
 // 検出し、マージゲートに掛ける。番号がコマンドに無い(gh pr merge --squash 等)
 // 場合も、マージコマンドと判定したらゲートに入れる(番号はカレントブランチの
 // PR にフォールバックし、解決できなければ fail-closed でブロック)。
-func checkGh(args []string, deps Deps) string {
+func checkGh(args []string, cwd string, deps Deps) string {
 	args = ghSubArgs(args)
 	if !isGhMerge(args) {
 		return ""
 	}
-	return checkMerge(parseGhMergeNumber(args), deps)
+	return checkMerge(parseGhMergeNumber(args), cwd, deps)
 }
 
 // ghSubArgs は gh のグローバルフラグ(-R/--repo <value> 等)を読み飛ばして、
@@ -395,17 +467,18 @@ func atoiLoose(s string) int {
 	return n
 }
 
-// checkMerge はマージゲート。PR 番号を受け取り(0 ならカレントブランチの PR)、
-// pr verify → Closes 紐づけ → merge:agent → CI green →
-// atelier-review green の順に確認する(fail-closed: 確認できないものはブロック)。
-func checkMerge(number int, deps Deps) string {
+// checkMerge はマージゲート。PR 番号を受け取り(0 ならカレントブランチ —
+// hook cwd 基準(#138)— の PR)、pr verify → Closes 紐づけ → merge:agent →
+// CI green → atelier-review green の順に確認する(fail-closed: 確認できない
+// ものはブロック)。
+func checkMerge(number int, cwd string, deps Deps) string {
 	client, repo, err := resolveClient(deps)
 	if err != nil {
 		return fmt.Sprintf("マージゲートを実行できないため停止します(%v)", err)
 	}
 
 	if number == 0 {
-		number = currentPRNumber(client, repo, deps)
+		number = currentPRNumber(client, repo, cwd, deps)
 	}
 	if number == 0 {
 		return "マージ対象の PR 番号を特定できません"
@@ -584,11 +657,11 @@ func fetchMergeStatus(client verify.GraphQL, repo string, number int) (mergeStat
 	return status, nil
 }
 
-// currentPRNumber はカレントブランチの OPEN な PR 番号を返す(bash 版の
-// `gh pr view` フォールバックに対応)。解決できなければ 0。
-func currentPRNumber(client verify.GraphQL, repo string, deps Deps) int {
-	branch, err := deps.Branch()
-	if err != nil || branch == "" {
+// currentPRNumber はカレントブランチ(hook cwd 基準。#138)の OPEN な PR 番号を
+// 返す(bash 版の `gh pr view` フォールバックに対応)。解決できなければ 0。
+func currentPRNumber(client verify.GraphQL, repo, cwd string, deps Deps) int {
+	branch := resolveBranch(deps, cwd)
+	if branch == "" {
 		return 0
 	}
 	owner, name, err := splitRepo(repo)

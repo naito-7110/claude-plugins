@@ -11,8 +11,10 @@
 set -euo pipefail
 
 # hooks は「現在のディレクトリ」で実行される(公式仕様)。相対パス
-# (.agents/ / git コマンド)の基準をプロジェクトルートに固定する
-# (バイナリ側でも CLAUDE_PROJECT_DIR へ chdir するため二重でも害はない)。
+# (.agents/ / .atelier/ の判定、ブランチ解決のフォールバック基準)を
+# プロジェクトルートに固定する(バイナリ側でも CLAUDE_PROJECT_DIR へ chdir
+# するため二重でも害はない)。ブランチ判定そのものはバイナリが hook JSON の
+# cwd 基準で行う(#138)。
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || true
 
 ATELIER_BIN="${ATELIER_BIN:-}"

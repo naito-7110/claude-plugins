@@ -14,18 +14,27 @@ import (
 )
 
 // executeGate は atelier gate を hook JSON つきで実行する。
-// branch が空文字ならブランチ解決の失敗(unborn かつ symbolic-ref も不能)を再現する。
+// branch はプロジェクトルート(cwd 指定なし)のブランチ。空文字なら
+// ブランチ解決の失敗(unborn かつ symbolic-ref も不能)を再現する。
 func executeGate(t *testing.T, server *ghfake.Server, branch, root, stdin string) run {
+	t.Helper()
+	return executeGateAt(t, server, map[string]string{"": branch}, root, stdin)
+}
+
+// executeGateAt はディレクトリ → ブランチの対応(キー "" = プロジェクトルート)で
+// ブランチ解決を偽装して atelier gate を実行する(#138: hook cwd 基準の判定)。
+// 対応が無い・空文字のディレクトリは解決失敗を再現する。
+func executeGateAt(t *testing.T, server *ghfake.Server, branches map[string]string, root, stdin string) run {
 	t.Helper()
 	var out, errOut strings.Builder
 	deps := cli.Deps{
 		NewClient:   func() (board.GraphQL, error) { return server, nil },
 		CurrentRepo: func() (string, error) { return testRepo, nil },
-		CurrentBranch: func() (string, error) {
-			if branch == "" {
+		CurrentBranch: func(dir string) (string, error) {
+			if branches[dir] == "" {
 				return "", errors.New("ブランチを解決できません")
 			}
-			return branch, nil
+			return branches[dir], nil
 		},
 		In:  strings.NewReader(stdin),
 		Out: &out,
@@ -35,12 +44,16 @@ func executeGate(t *testing.T, server *ghfake.Server, branch, root, stdin string
 	return run{code: code, out: out.String(), err: errOut.String()}
 }
 
-// hookJSON は PreToolUse の stdin JSON を組み立てる。
-func hookJSON(t *testing.T, tool string, toolInput map[string]interface{}) string {
+// hookJSON は PreToolUse の stdin JSON を組み立てる(extra はトップレベルに足す)。
+func hookJSON(t *testing.T, tool string, toolInput map[string]interface{}, extra ...map[string]interface{}) string {
 	t.Helper()
-	raw, err := json.Marshal(map[string]interface{}{
-		"tool_name": tool, "tool_input": toolInput,
-	})
+	payload := map[string]interface{}{"tool_name": tool, "tool_input": toolInput}
+	for _, m := range extra {
+		for k, v := range m {
+			payload[k] = v
+		}
+	}
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +63,13 @@ func hookJSON(t *testing.T, tool string, toolInput map[string]interface{}) strin
 func bashJSON(t *testing.T, cmd string) string {
 	t.Helper()
 	return hookJSON(t, "Bash", map[string]interface{}{"command": cmd})
+}
+
+// bashJSONAt は実行ディレクトリ(hook JSON のトップレベル cwd)つきの Bash 入力。
+func bashJSONAt(t *testing.T, cwd, cmd string) string {
+	t.Helper()
+	return hookJSON(t, "Bash", map[string]interface{}{"command": cmd},
+		map[string]interface{}{"cwd": cwd})
 }
 
 // managedRoot は atelier 管理下の root(.atelier/ あり)を作る。
@@ -107,11 +127,11 @@ func TestGateUnmanagedRepoAllowsEverything(t *testing.T) {
 	// (管理外のリポジトリを fail-closed の人質にしない)。
 	unmanaged := t.TempDir() // .atelier/ なし
 	for _, stdin := range []string{
-		bashJSON(t, "git push origin main"),                    // main 直 push
-		bashJSON(t, "git push --force origin main"),            // force push
-		bashJSON(t, "gh pr merge 64 --squash"),                 // マージ
-		bashJSON(t, "atelier release atelier/v0.3.0"),          // リリース
-		bashJSON(t, "git push --tags"),                         // タグ push
+		bashJSON(t, "git push origin main"),           // main 直 push
+		bashJSON(t, "git push --force origin main"),   // force push
+		bashJSON(t, "gh pr merge 64 --squash"),        // マージ
+		bashJSON(t, "atelier release atelier/v0.3.0"), // リリース
+		bashJSON(t, "git push --tags"),                // タグ push
 		hookJSON(t, "Write", map[string]interface{}{"file_path": "docs/adr/x.md"}),
 	} {
 		result := executeGate(t, testServer(), "main", unmanaged, stdin)
@@ -212,10 +232,10 @@ func TestGateNoFalsePositiveOnQuotedWords(t *testing.T) {
 	server := testServer()
 	readyIssue(server)
 	for _, cmd := range []string{
-		`git commit -m "covers push/merge/release; and && more"`,       // メッセージ内の語
-		`git commit -m "main への直 push は禁止"`,                       // メッセージ内の main + push
+		`git commit -m "covers push/merge/release; and && more"`, // メッセージ内の語
+		`git commit -m "main への直 push は禁止"`,                      // メッセージ内の main + push
 		`gh issue create --title "atelier/v1.0.0 のタグを push する話"`, // 引用符内のタグ + push
-		`echo "git push origin main"`,                                   // echo の引数
+		`echo "git push origin main"`,                            // echo の引数
 	} {
 		result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t), bashJSON(t, cmd))
 		assertAllowed(t, result)
@@ -269,6 +289,141 @@ func TestGateWorktreePushJudgedByRefspec(t *testing.T) {
 	assertAllowed(t, result) // main 扱いされず、agent の issue 検証(green)を通る
 }
 
+// --- #138: ブランチ判定は hook stdin JSON の cwd 基準(worktree からの push)---
+//
+// hook の cwd(= Bash が実行されるディレクトリ)が worktree のとき、カレント
+// ブランチはルート checkout ではなく worktree のブランチで判定する。ルートが
+// main のままでも、worktree 内からの agent ブランチ push を誤ブロックしない。
+
+// worktree(agent ブランチ)内からの refspec 無し `git push` は、worktree の
+// ブランチに解決され、push ゲート(issue 検証 green)を通る。
+func TestGateBarePushFromWorktreeCwdUsesWorktreeBranch(t *testing.T) {
+	server := testServer()
+	readyIssue(server)
+	branches := map[string]string{"": "main", "/repo/.worktrees/issue-38": "agent/issue-38-gate"}
+	result := executeGateAt(t, server, branches, managedRoot(t),
+		bashJSONAt(t, "/repo/.worktrees/issue-38", "git push"))
+	assertAllowed(t, result)
+}
+
+// HEAD / 明示 refspec の push も cwd のブランチで解決・判定される。
+func TestGateWorktreeCwdPushVariantsPass(t *testing.T) {
+	branches := map[string]string{"": "main", "/repo/.worktrees/issue-38": "agent/issue-38-gate"}
+	for _, cmd := range []string{
+		"git push origin HEAD", // HEAD は cwd のブランチ(agent)に解決される
+		"git push -u origin agent/issue-38-gate",
+	} {
+		server := testServer()
+		readyIssue(server)
+		result := executeGateAt(t, server, branches, managedRoot(t),
+			bashJSONAt(t, "/repo/.worktrees/issue-38", cmd))
+		assertAllowed(t, result)
+	}
+}
+
+// cwd 基準になっても push ゲートは弱まらない: worktree の issue が push 条件を
+// 満たさなければ従来どおりブロックする。
+func TestGateWorktreeCwdPushNotReadyIssueBlocked(t *testing.T) {
+	server := testServer()
+	issue := readyIssue(server)
+	issue.Labels = nil // agent-ok なし
+	branches := map[string]string{"": "main", "/repo/.worktrees/issue-38": "agent/issue-38-gate"}
+	result := executeGateAt(t, server, branches, managedRoot(t),
+		bashJSONAt(t, "/repo/.worktrees/issue-38", "git push"))
+	assertBlocked(t, result, "issue #38 の状態が push 条件を満たしません")
+}
+
+// main への直 push は cwd がルートでも worktree でも引き続きブロックする。
+func TestGatePushToMainFromWorktreeCwdStillBlocked(t *testing.T) {
+	branches := map[string]string{
+		"":                          "main",
+		"/repo/.worktrees/issue-38": "agent/issue-38-gate",
+		"/repo/.worktrees/hotfix":   "main", // worktree 側が main の変則も塞ぐ
+	}
+	cases := []struct{ cwd, cmd, want string }{
+		{"/repo/.worktrees/issue-38", "git push origin main", "main への直 push は禁止です"},              // 明示 main 宛て
+		{"/repo/.worktrees/issue-38", "git push --force origin main", "main への force push は禁止です"}, // force
+		{"/repo/.worktrees/hotfix", "git push", "main への直 push は禁止です"},                            // cwd のブランチが main
+		{"/repo/.worktrees/hotfix", "git push origin HEAD", "main への直 push は禁止です"},                // HEAD = main
+	}
+	for _, tc := range cases {
+		result := executeGateAt(t, testServer(), branches, managedRoot(t),
+			bashJSONAt(t, tc.cwd, tc.cmd))
+		assertBlocked(t, result, tc.want)
+	}
+}
+
+// マージゲートの PR 番号フォールバック(番号なし gh pr merge)も cwd のブランチで
+// 解決される(deps.Branch を共有するため。ルート main では PR を特定できないが、
+// worktree のブランチなら PR #64 に解決され、そのゲート判定が適用される)。
+func TestGateMergeNumberFromWorktreeCwdBranch(t *testing.T) {
+	server := testServer()
+	pr := mergeReadyPR(server)
+	pr.ReviewState = "FAILURE" // 解決された PR #64 がゲートされることで解決を実証する
+	branches := map[string]string{"": "main", "/repo/.worktrees/issue-38": "agent/issue-38-gate"}
+	result := executeGateAt(t, server, branches, managedRoot(t),
+		bashJSONAt(t, "/repo/.worktrees/issue-38", "gh pr merge --squash"))
+	assertBlocked(t, result, "PR #64 は別コンテキストレビュア")
+}
+
+// cwd が JSON に無ければ従来どおりプロジェクトルートのブランチで判定する
+// (フォールバック。ルート main の bare push は直 push ゲートで止まる)。
+func TestGateNoCwdFallsBackToRootBranch(t *testing.T) {
+	branches := map[string]string{"": "main"}
+	result := executeGateAt(t, testServer(), branches, managedRoot(t),
+		bashJSON(t, "git push")) // cwd なし
+	assertBlocked(t, result, "main への直 push は禁止です")
+}
+
+// cwd のブランチが解決できない(git リポジトリ外等)場合はプロジェクトルートで
+// 再解決する(#138 以前の「常にルートで判定」の防御水準を下限として維持 —
+// 非リポジトリな cwd を経由した bare push / HEAD push がルートの main 判定を
+// 逃れる fail-open にしない)。
+func TestGateUnresolvedCwdFallsBackToRootBranch(t *testing.T) {
+	branches := map[string]string{"": "main"} // cwd の対応なし = 解決失敗
+	for _, cmd := range []string{"git push origin HEAD", "git push"} {
+		result := executeGateAt(t, testServer(), branches, managedRoot(t),
+			bashJSONAt(t, "/outside/repo", cmd))
+		assertBlocked(t, result, "main への直 push は禁止です")
+	}
+}
+
+// cwd でもルートでも解決できなければ、従来どおり「未解決 = 判定材料なし」で
+// 素通し(その環境では git push 自体が失敗する)。
+func TestGateBranchUnresolvedEverywherePasses(t *testing.T) {
+	branches := map[string]string{} // どこでも解決失敗
+	result := executeGateAt(t, testServer(), branches, managedRoot(t),
+		bashJSONAt(t, "/outside/repo", "git push origin HEAD"))
+	assertAllowed(t, result)
+}
+
+// git のグローバル -C はコマンドの実効ディレクトリを変える。ブランチ判定は
+// hook cwd ではなく -C のパスで行う(cwd を別の場所へ移してから
+// `git -C <main の checkout> push` でルートの main を押す迂回を塞ぐ)。
+func TestGateDashCDirOverridesCwdForBranch(t *testing.T) {
+	branches := map[string]string{
+		"":                          "feature/x", // ルートは main 以外(フォールバックでは検出できない配置)
+		"/repo/wt-main":             "main",
+		"/repo/.worktrees/issue-38": "agent/issue-38-gate",
+	}
+	// cwd は解決不能な場所・agent worktree のどちらでも、-C の先が main なら止まる。
+	for _, cwd := range []string{"/outside/repo", "/repo/.worktrees/issue-38"} {
+		result := executeGateAt(t, testServer(), branches, managedRoot(t),
+			bashJSONAt(t, cwd, "git -C /repo/wt-main push"))
+		assertBlocked(t, result, "main への直 push は禁止です")
+	}
+}
+
+// 相対パスの -C は cwd 起点で合成される(worktree 相対の自然な操作)。
+func TestGateRelativeDashCJoinedWithCwd(t *testing.T) {
+	server := testServer()
+	readyIssue(server)
+	branches := map[string]string{"": "main", "/repo/.worktrees/issue-38": "agent/issue-38-gate"}
+	result := executeGateAt(t, server, branches, managedRoot(t),
+		bashJSONAt(t, "/repo/.worktrees", "git -C issue-38 push"))
+	assertAllowed(t, result) // /repo/.worktrees/issue-38 の agent ブランチとして判定される
+}
+
 // git のグローバルオプション(-C <path> / --no-pager / -c k=v)を前置しても
 // push を見失わない(セルフレビュー指摘の退行修正。worktree で -C は自然)。
 func TestGateGitGlobalOptionsStillGatePush(t *testing.T) {
@@ -285,10 +440,10 @@ func TestGateGitGlobalOptionsStillGatePush(t *testing.T) {
 // 宛先 main の別表記(force refspec + / refs/heads/ / HEAD)も捕捉する。
 func TestGateMainRefspecVariantsBlocked(t *testing.T) {
 	cases := []struct{ cmd, want string }{
-		{"git push origin +main", "main への force push は禁止です"},              // 先頭 + = force refspec
-		{"git push origin refs/heads/main", "main への直 push は禁止です"},        // refs/heads/ 接頭辞
+		{"git push origin +main", "main への force push は禁止です"},           // 先頭 + = force refspec
+		{"git push origin refs/heads/main", "main への直 push は禁止です"},      // refs/heads/ 接頭辞
 		{"git push origin HEAD:refs/heads/main", "main への直 push は禁止です"}, // 明示 dst
-		{"git push -fu origin main", "main への force push は禁止です"},           // 結合短縮フラグ -fu
+		{"git push -fu origin main", "main への force push は禁止です"},        // 結合短縮フラグ -fu
 	}
 	for _, tc := range cases {
 		result := executeGate(t, testServer(), "feature/x", managedRoot(t), bashJSON(t, tc.cmd))

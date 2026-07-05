@@ -12,10 +12,14 @@ import (
 // Deps は実行時依存(GraphQL クライアント生成・カレントリポジトリ解決)。
 // テストでは fake を注入する。
 type Deps struct {
-	NewClient     func() (board.GraphQL, error)
-	CurrentRepo   func() (string, error)
-	CurrentBranch func() (string, error) // カレントブランチ(unborn でも名前を返す)
-	In            io.Reader              // hook JSON の入力(gate)
+	NewClient   func() (board.GraphQL, error)
+	CurrentRepo func() (string, error)
+	// CurrentBranch は dir のカレントブランチを返す(unborn でも名前を返す)。
+	// dir が空ならプロセスのカレントディレクトリ(gate ではプロジェクトルート)。
+	// worktree では checkout 中のブランチがディレクトリごとに異なるため、
+	// 判定基準のディレクトリは呼び出し側が指定する(#138)。
+	CurrentBranch func(dir string) (string, error)
+	In            io.Reader // hook JSON の入力(gate)
 	Out           io.Writer
 	Err           io.Writer
 }
