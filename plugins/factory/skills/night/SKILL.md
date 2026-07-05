@@ -13,7 +13,8 @@ tools:
 
 ### 0. 運転モードの確認(人間のスイッチ。fail-closed = 既定は走らない)
 
-- **`factory mode gate` を実行し、非ゼロなら即終了する**。運転状態(auto / manual / paused)は bin が管理するローカル状態(`.agents/` 配下・コミットしない — 履歴を濁さない)で、既定は manual(明示的に `factory mode auto` されたマシンだけが無人運転する)
+- **`factory mode gate` を実行し、非ゼロなら即終了する**。運転状態(auto / manual / paused)は bin が管理するローカル状態(`.agents/` 配下)で、既定は manual(明示的に `factory mode auto` されたマシンだけが無人運転する)
+- **運転状態は git 管理外・マシンごとに独立**(`.agents/` は init が .gitignore へ追記する): コミット履歴を濁さず、他の人の環境にも影響しない。同じリポジトリを複数人が clone しても、無人運転するのは `factory mode auto` した本人のマシンだけ
 - 状態ファイルを直接触らない(操作は常に `factory mode ...` 経由 — orchestrate に「止めて」と頼むフローも同じ bin に落ちる)
 - この終了は**正常系**(ログにのみ記録し、issue コメントは出さない — 毎 tick のスパム防止。設定異常の記録は次の前提チェックの役目)
 
