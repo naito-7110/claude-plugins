@@ -14,6 +14,13 @@
 //     サブコマンドは #129 で撤去済みだが、旧版バイナリ(factory 名義を含む)が
 //     残存する環境への防御として起動検出は維持する
 //
+// 判定はコマンド文字列をトークン化(tokenize.go)し、セグメント(コマンド列要素)
+// ごとに実コマンド(git / gh / atelier / factory)を識別して行う。文字列全体への
+// 正規表現部分一致はしない(#119: コミットメッセージ内の語・連結コマンドの引数
+// 混同・引用符すり抜けを構文で解消する)。トップレベルのコマンド列のみを見る保守
+// 的な判定で、ネストしたコマンド(bash -c の中身・$() 置換)は追わない(ADR 0002:
+// 防御は配るが完璧は求めない)。
+//
 // issue / pr verify はプロセス起動ではなく internal/verify の関数呼び出しで行う
 // (判定一元化 — #38 と同じ方針)。ブロックの理由は呼び出し側(cli)が stderr に
 // 出して exit 2 に変換する(hook 契約: exit 2 = ブロック、その他非ゼロ = 実行失敗)。
@@ -57,28 +64,11 @@ type Deps struct {
 	Err     io.Writer              // verify 所見の出力先(ブロック理由の判断材料)
 }
 
-// --- コマンド検出(bash 版の grep -E と同一のパターン)---
-//
-// 検出の正規表現こそ壊れやすくテストで固定する価値が高い(#71 で unborn の穴を
-// 実測発見済み)。bash の [[:space:]] は Go の \s に対応する。
-var (
-	gitPushPattern   = regexp.MustCompile(`(^|[;&|\s])git\s[^;&|]*push`)
-	forcePushPattern = regexp.MustCompile(`push[^;&|]*\s(-f|--force|--force-with-lease)(\s|$)`)
-	mainWordPattern  = regexp.MustCompile(`main|master`)
-	directPushMain   = regexp.MustCompile(`push[^;&|]*\s(origin\s+)?(main|master)(\s|$|:)`)
+// branchIssuePattern は agent/issue-<n>-* ブランチから issue 番号を取り出す。
+var branchIssuePattern = regexp.MustCompile(`^agent/issue-([0-9]+)`)
 
-	ghPrMergePattern  = regexp.MustCompile(`gh\s+pr\s+merge`)
-	ghAPIMergePattern = regexp.MustCompile(`gh\s+api[^;&|]*/pulls?/[0-9]+/merge`)
-	mergeNumberSource = regexp.MustCompile(`pr\s+merge\s+#?[0-9]+|/pulls?/[0-9]+/merge`)
-	digitsPattern     = regexp.MustCompile(`[0-9]+`)
-
-	branchIssuePattern = regexp.MustCompile(`^agent/issue-([0-9]+)`)
-
-	// リリースゲート: リリースコマンドの起動(パス付き・旧名 factory バイナリも拾う)と、
-	// タグを push するコマンド(--tags / refs/tags/ / atelier/v* 引数)。
-	releaseCmdPattern = regexp.MustCompile(`(^|[;&|\s/])(atelier|factory)\s+release(\s[^;&|]*|)($|[;&|])`)
-	tagPushPattern    = regexp.MustCompile(`push[^;&|]*(\s--tags(\s|$|[;&|])|refs/tags/|\s(atelier|factory)/v)`)
-)
+// リリースタグと判定する refspec の接頭辞(atelier/v* / factory/v* / refs/tags/)。
+var tagRefPrefixes = []string{"atelier/v", "factory/v", "refs/tags/"}
 
 // Check は hook 入力を判定し、ブロックすべきなら理由(非空)を返す。
 // error は判定不能な実行失敗(hook 契約では exit 2 に変換しない)。
@@ -99,88 +89,321 @@ func Check(input Input, deps Deps) (string, error) {
 }
 
 // --- Bash: push ゲート・マージゲート・リリースゲート ---
+//
+// コマンドをトークン化し、セグメントごとに実コマンドを識別して判定する。
+// 最初にブロック理由が立ったセグメントで返す(fail-closed)。
 
 func checkBash(input Input, deps Deps) string {
-	cmd := input.ToolInput.Command
-	if cmd == "" {
+	for _, seg := range Tokenize(input.ToolInput.Command) {
+		name, args := commandName(seg)
+		var reason string
+		switch name {
+		case "atelier", "factory":
+			reason = checkReleaseCmd(args)
+		case "git":
+			reason = checkGit(args, deps)
+		case "gh":
+			reason = checkGh(args, deps)
+		}
+		if reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
+// checkReleaseCmd はリリースコマンド(atelier / factory release)の起動を
+// ブロックする。--dry-run を含む起動は許可(検証は無害で、状態確認は正当)。
+// release サブコマンドは #129 で撤去済みだが、旧版バイナリが残存する環境への
+// 防御として起動検出は維持する(merge-policy: デプロイ = 人間の tag push)。
+func checkReleaseCmd(args []string) string {
+	if len(args) == 0 || args[0] != "release" {
 		return ""
 	}
-
-	// 4. リリースゲート(常時): デプロイの引き金は人間の操作。
-	if reason := checkRelease(cmd); reason != "" {
-		return reason
+	for _, a := range args {
+		if a == "--dry-run" {
+			return ""
+		}
 	}
+	return "リリースタグは人間の操作です(merge-policy: デプロイ = 人間の tag push)。--dry-run での確認は可能です"
+}
 
-	// 1. main への直 push / force push + 2. push ゲート
-	if gitPushPattern.MatchString(cmd) {
-		if forcePushPattern.MatchString(cmd) && mainWordPattern.MatchString(cmd) {
+// checkGit は git セグメントの push を判定する。push 以外の git サブコマンドは
+// 対象外(コミットメッセージ等の引数に push / main の語が入っても誤爆しない)。
+//
+// 判定は push の refspec(引数)から宛先・push 元ブランチを構文的に取る:
+//   - タグを push する(--tags / refs/tags/ / atelier|factory/v*)→ リリースゲート
+//   - 宛先が main / master → 直 push(force なら force push)をブロック
+//   - 宛先または push 元が agent/issue-<n> → issue の状態を検証
+//
+// refspec が無い(`git push` のみ)ときは、push 元をカレントブランチ(deps.Branch)
+// にフォールバックする。明示的な refspec があればそれを優先し、hook の cwd
+// (プロジェクトルート)に依存しない(#119: worktree からの push の誤判定を解消)。
+func checkGit(args []string, deps Deps) string {
+	sub, rest := gitSubcommand(args)
+	if sub != "push" {
+		return ""
+	}
+	force, hasTagsFlag, allRefs, positionals := parsePushArgs(rest)
+
+	// --all / --mirror は refspec 無しでもローカルの全 ref(main を含みうる)を
+	// push する。refspec 無し = カレントのみという仮定が崩れるため、直 push
+	// (force なら force push)相当でブロックする(#119 セルフレビュー指摘)。
+	if allRefs {
+		if force {
 			return "main への force push は禁止です(git-workflow)"
 		}
-		if directPushMain.MatchString(cmd) {
-			return "main への直 push は禁止です(PR を経由してください — git-workflow)"
-		}
-		if reason := checkPushBranch(deps); reason != "" {
-			return reason
-		}
+		return "全ブランチの push(--all / --mirror)は禁止です(main を含みうる — git-workflow)"
 	}
 
-	// 3. マージゲート
-	if ghPrMergePattern.MatchString(cmd) || ghAPIMergePattern.MatchString(cmd) {
-		if reason := checkMerge(cmd, deps); reason != "" {
-			return reason
-		}
+	// refspec を src / dst に分解する(remote は positionals[0]、以降が refspec)。
+	var refs []string
+	if len(positionals) > 1 {
+		refs = positionals[1:]
 	}
-	return ""
-}
+	// カレントブランチは HEAD 解決と refspec 無しのフォールバックに使う。
+	current, _ := deps.Branch()
 
-// checkRelease はリリースゲート(merge-policy: デプロイ = 人間の tag push)。
-//   - リリースコマンド(旧版バイナリ含む)の実行をブロックする。ただし --dry-run を含む起動は許可
-//     (検証は無害で、AI がリリース状態を確認する用途は正当)
-//   - タグを push するコマンド(--tags / refs/tags/ / atelier/v* 引数)をブロックする
-func checkRelease(cmd string) string {
-	for _, match := range releaseCmdPattern.FindAllStringSubmatch(cmd, -1) {
-		if !strings.Contains(match[3], "--dry-run") {
-			return "リリースタグは人間の操作です(merge-policy: デプロイ = 人間の tag push)。--dry-run での確認は可能です"
+	var srcs, dsts []string
+	tagPush := hasTagsFlag
+	for _, ref := range refs {
+		src, dst, refForce := splitRefspec(ref)
+		if refForce {
+			force = true // 先頭 + は force refspec
+		}
+		if hasTagRefPrefix(src) || hasTagRefPrefix(dst) {
+			tagPush = true
+		}
+		if src != "" {
+			srcs = append(srcs, normalizeRef(src, current))
+		}
+		if dst != "" {
+			dsts = append(dsts, normalizeRef(dst, current))
 		}
 	}
-	if gitPushPattern.MatchString(cmd) && tagPushPattern.MatchString(cmd) {
+	// refspec が無ければ push 元 = カレントブランチ(src=dst)にフォールバックする。
+	if len(refs) == 0 && current != "" {
+		srcs = append(srcs, current)
+		dsts = append(dsts, current)
+	}
+
+	if tagPush {
 		return "タグの push は人間の操作です(merge-policy: デプロイ = 人間の tag push。手順は tools/atelier/README.md のリリース節を参照)"
 	}
+	for _, dst := range dsts {
+		if dst == "main" || dst == "master" {
+			if force {
+				return "main への force push は禁止です(git-workflow)"
+			}
+			return "main への直 push は禁止です(PR を経由してください — git-workflow)"
+		}
+	}
+	for _, ref := range append(append([]string{}, srcs...), dsts...) {
+		if m := branchIssuePattern.FindStringSubmatch(ref); m != nil {
+			number, _ := strconv.Atoi(m[1])
+			if !issueVerifyOK(deps, number) {
+				return fmt.Sprintf("issue #%d の状態が push 条件を満たしません(ラベルなしの実装は push できません)", number)
+			}
+		}
+	}
 	return ""
 }
 
-// checkPushBranch は push 時のブランチゲート。ブランチ名の解決は
-// symbolic-ref 相当(コミットゼロの unborn ブランチでも名前を返す)を注入する。
-// 解決できない場合は bash 版と同じく素通し(ブランチ不明はゲート対象外)。
-func checkPushBranch(deps Deps) string {
-	branch, err := deps.Branch()
+// gitValueOpts は git のグローバルオプションのうち、次のトークンを値として取るもの
+// (`--opt=value` の = 形式は 1 トークンなので別扱い)。
+var gitValueOpts = map[string]bool{
+	"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
+	"--namespace": true, "--exec-path": true, "--super-prefix": true,
+}
+
+// gitSubcommand は `git [グローバルオプション...] <サブコマンド> [引数...]` から
+// サブコマンドと以降の引数を返す。グローバルオプション(-C <path> / -c <k=v> /
+// --no-pager 等)を読み飛ばしてから最初の非オプショントークンをサブコマンドとする
+// (#119: `git -C <worktree> push origin main` の取りこぼしを防ぐ)。
+func gitSubcommand(args []string) (string, []string) {
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			return a, args[i+1:]
+		}
+		if strings.Contains(a, "=") { // --opt=value は 1 トークン
+			i++
+			continue
+		}
+		if gitValueOpts[a] { // -C <path> 等は次トークンが値
+			i += 2
+			continue
+		}
+		i++ // 値なしフラグ(--no-pager 等)
+	}
+	return "", nil
+}
+
+// parsePushArgs は push の引数を force / --tags / --all|--mirror / 位置引数へ分ける。
+// 単一ダッシュの結合短縮フラグ(-fu 等)も f を含めば force とみなす。
+func parsePushArgs(args []string) (force, hasTags, allRefs bool, positionals []string) {
+	for _, a := range args {
+		switch {
+		case a == "--force" || a == "--force-with-lease" || a == "--force-if-includes" ||
+			strings.HasPrefix(a, "--force-with-lease="):
+			force = true
+		case a == "--tags":
+			hasTags = true
+		case a == "--all" || a == "--mirror":
+			allRefs = true
+		case strings.HasPrefix(a, "--"):
+			// その他の long フラグは判定に使わない(--set-upstream 等)。
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			// 単一ダッシュの短縮フラグ(結合可: -fu = -f -u)。f を含めば force。
+			if strings.ContainsRune(a[1:], 'f') {
+				force = true
+			}
+		default:
+			positionals = append(positionals, a)
+		}
+	}
+	return force, hasTags, allRefs, positionals
+}
+
+// splitRefspec は refspec を src / dst / force(先頭 +)に分ける。
+// `+src:dst` はコロンで分割し先頭 + を force とする。コロンが無ければ src = dst。
+func splitRefspec(ref string) (src, dst string, force bool) {
+	if strings.HasPrefix(ref, "+") {
+		force = true
+		ref = ref[1:]
+	}
+	if i := strings.IndexByte(ref, ':'); i >= 0 {
+		return ref[:i], ref[i+1:], force
+	}
+	return ref, ref, force
+}
+
+// normalizeRef はブランチ参照を比較用に正規化する。refs/heads/ 接頭辞を畳み、
+// HEAD はカレントブランチに解決する(#119: refs/heads/main や HEAD:main、
+// カレント main での HEAD が main 宛て判定を漏れるのを防ぐ)。
+func normalizeRef(ref, current string) string {
+	ref = strings.TrimPrefix(ref, "refs/heads/")
+	if (ref == "HEAD" || ref == "@") && current != "" { // @ は HEAD の同義語
+		return current
+	}
+	return ref
+}
+
+func hasTagRefPrefix(ref string) bool {
+	for _, p := range tagRefPrefixes {
+		if strings.HasPrefix(ref, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkGh は gh セグメントのマージ(gh pr merge / gh api .../pulls/<n>/merge)を
+// 検出し、マージゲートに掛ける。番号がコマンドに無い(gh pr merge --squash 等)
+// 場合も、マージコマンドと判定したらゲートに入れる(番号はカレントブランチの
+// PR にフォールバックし、解決できなければ fail-closed でブロック)。
+func checkGh(args []string, deps Deps) string {
+	args = ghSubArgs(args)
+	if !isGhMerge(args) {
+		return ""
+	}
+	return checkMerge(parseGhMergeNumber(args), deps)
+}
+
+// ghSubArgs は gh のグローバルフラグ(-R/--repo <value> 等)を読み飛ばして、
+// サブコマンド以降の引数を返す(#119: `gh -R o/r pr merge 5` の取りこぼし防止)。
+func ghSubArgs(args []string) []string {
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			return args[i:]
+		}
+		if strings.Contains(a, "=") { // --repo=o/r は 1 トークン
+			i++
+			continue
+		}
+		if a == "-R" || a == "--repo" { // 値を取るグローバルフラグ
+			i += 2
+			continue
+		}
+		i++
+	}
+	return nil
+}
+
+// isGhMerge は gh のマージコマンドか(番号の有無に依らない)。
+//   - gh pr merge [<n>] [flags]
+//   - gh api ... <path が /pulls/<n>/merge を含む>
+func isGhMerge(args []string) bool {
+	if len(args) >= 2 && args[0] == "pr" && args[1] == "merge" {
+		return true
+	}
+	if len(args) >= 1 && args[0] == "api" {
+		for _, a := range args[1:] {
+			if mergePathNumber(a) != 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// parseGhMergeNumber は gh のマージコマンドから PR 番号を返す(取れなければ 0)。
+func parseGhMergeNumber(args []string) int {
+	if len(args) >= 3 && args[0] == "pr" && args[1] == "merge" {
+		return atoiLoose(args[2])
+	}
+	if len(args) >= 1 && args[0] == "api" {
+		for _, a := range args[1:] {
+			if n := mergePathNumber(a); n != 0 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+// mergePathNumber は "repos/o/r/pulls/64/merge"(/pull/ も可)から 64 を返す。
+func mergePathNumber(path string) int {
+	for _, seg := range []string{"/pulls/", "/pull/"} {
+		i := strings.Index(path, seg)
+		if i < 0 {
+			continue
+		}
+		rest := path[i+len(seg):]
+		j := strings.IndexByte(rest, '/')
+		if j < 0 {
+			continue
+		}
+		if !strings.HasPrefix(rest[j:], "/merge") {
+			continue
+		}
+		return atoiLoose(rest[:j])
+	}
+	return 0
+}
+
+// atoiLoose は先頭の # を落として数値化する(#64 → 64)。非数値は 0。
+func atoiLoose(s string) int {
+	s = strings.TrimPrefix(s, "#")
+	n, err := strconv.Atoi(s)
 	if err != nil {
-		return ""
+		return 0
 	}
-	if branch == "main" || branch == "master" {
-		return "main ブランチからの push は禁止です(作業は agent/issue-<n>-<slug> ブランチで)"
-	}
-	match := branchIssuePattern.FindStringSubmatch(branch)
-	if match == nil {
-		return ""
-	}
-	number, _ := strconv.Atoi(match[1])
-	if !issueVerifyOK(deps, number) {
-		return fmt.Sprintf("issue #%d の状態が push 条件を満たしません(ラベルなしの実装は push できません)", number)
-	}
-	return ""
+	return n
 }
 
-// checkMerge はマージゲート。PR 番号をコマンドから抽出し(無ければカレント
-// ブランチの PR)、pr verify → Closes 紐づけ → merge:agent → CI green →
+// checkMerge はマージゲート。PR 番号を受け取り(0 ならカレントブランチの PR)、
+// pr verify → Closes 紐づけ → merge:agent → CI green →
 // atelier-review green の順に確認する(fail-closed: 確認できないものはブロック)。
-func checkMerge(cmd string, deps Deps) string {
+func checkMerge(number int, deps Deps) string {
 	client, repo, err := resolveClient(deps)
 	if err != nil {
 		return fmt.Sprintf("マージゲートを実行できないため停止します(%v)", err)
 	}
 
-	number := parseMergeNumber(cmd)
 	if number == 0 {
 		number = currentPRNumber(client, repo, deps)
 	}
@@ -215,17 +438,6 @@ func checkMerge(cmd string, deps Deps) string {
 		return fmt.Sprintf("PR #%d は別コンテキストレビュア(atelier-review)の green がありません(merge-policy の実行条件)", number)
 	}
 	return ""
-}
-
-// parseMergeNumber は「gh pr merge 64」「gh api .../pulls/64/merge」から
-// PR 番号を取り出す(bash 版と同じく最初の数字)。
-func parseMergeNumber(cmd string) int {
-	match := mergeNumberSource.FindString(cmd)
-	if match == "" {
-		return 0
-	}
-	number, _ := strconv.Atoi(digitsPattern.FindString(match))
-	return number
 }
 
 func resolveClient(deps Deps) (verify.GraphQL, string, error) {
