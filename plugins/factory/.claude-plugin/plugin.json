@@ -1,5 +1,0 @@
-{
-  "name": "factory",
-  "description": "Human-attended dev factory: ADR as constitution, GitHub issues/labels as durable state, humans gate spec/ADR/merge",
-  "version": "0.2.2"
-}
