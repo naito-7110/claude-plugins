@@ -22,7 +22,7 @@ func runGate(args []string, deps Deps) int {
 	}
 
 	// hooks は「現在のディレクトリ」で実行される(公式仕様)。相対パス
-	// (.agents/unattended・git コマンド)の基準をプロジェクトルートに固定する
+	// (.factory/・git コマンド)の基準をプロジェクトルートに固定する
 	// (bash ラッパーの cd と同じ。失敗しても bash 版同様に続行する)。
 	if dir := os.Getenv("CLAUDE_PROJECT_DIR"); dir != "" {
 		_ = os.Chdir(dir)
@@ -35,12 +35,11 @@ func runGate(args []string, deps Deps) int {
 	}
 
 	reason, err := gate.Check(input, gate.Deps{
-		NewClient:  func() (verify.GraphQL, error) { return deps.NewClient() },
-		Repo:       deps.CurrentRepo,
-		Branch:     deps.CurrentBranch,
-		Managed:    isManaged(*root),
-		Unattended: isUnattended(*root),
-		Err:        deps.Err,
+		NewClient: func() (verify.GraphQL, error) { return deps.NewClient() },
+		Repo:      deps.CurrentRepo,
+		Branch:    deps.CurrentBranch,
+		Managed:   isManaged(*root),
+		Err:       deps.Err,
 	})
 	if err != nil {
 		fmt.Fprintf(deps.Err, "factory-gate: %v\n", err)
@@ -51,12 +50,6 @@ func runGate(args []string, deps Deps) int {
 		return ExitBlock
 	}
 	return ExitOK
-}
-
-// isUnattended は無人モードか(.agents/unattended の存在。bash 版の [ -f ] と同一)。
-func isUnattended(root string) bool {
-	info, err := os.Stat(filepath.Join(root, ".agents", "unattended"))
-	return err == nil && !info.IsDir()
 }
 
 // isManaged は factory 管理下か(.factory/ ディレクトリの存在。

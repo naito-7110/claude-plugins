@@ -8,19 +8,16 @@ import (
 
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/board"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/release"
-	"github.com/naito-7110/claude-plugins/tools/factory/internal/tick"
 )
 
-// Deps は実行時依存(GraphQL クライアント生成・カレントリポジトリ解決・
-// crontab 操作)。テストでは fake を注入する。
+// Deps は実行時依存(GraphQL クライアント生成・カレントリポジトリ解決)。
+// テストでは fake を注入する。
 type Deps struct {
 	NewClient     func() (board.GraphQL, error)
 	CurrentRepo   func() (string, error)
 	CurrentBranch func() (string, error) // カレントブランチ(unborn でも名前を返す)
-	Crontab       tick.Crontab
-	TickExec      tick.Exec   // tick run の claude 起動(プロセス境界)
-	ReleaseGit    release.Git // release のタグ操作(プロセス境界)
-	In            io.Reader   // hook JSON の入力(gate)
+	ReleaseGit    release.Git            // release のタグ操作(プロセス境界)
+	In            io.Reader              // hook JSON の入力(gate)
 	Out           io.Writer
 	Err           io.Writer
 }
@@ -34,7 +31,7 @@ const (
 	ExitBlock = 2
 )
 
-const usage = `使い方: factory <board|issue|pr|docs|flags|mode|tick|gate|branch|release> <サブコマンド> [オプション]
+const usage = `使い方: factory <board|issue|pr|docs|flags|gate|branch|release> <サブコマンド> [オプション]
 
 サブコマンド:
   board copy    正準ボード(factory board template)を対象 owner へ複製する
@@ -66,32 +63,6 @@ const usage = `使い方: factory <board|issue|pr|docs|flags|mode|tick|gate|bran
                 レジストリなし = 正常(フラグ未使用)。期限切れは NG、期限接近は警告のみ
                 --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
                 --warn-days <n>        期限接近を警告する日数(既定: 14)
-  mode <verb>   unattended 運転の運転状態(このマシンのローカル状態)を管理する
-                verb: status / auto / manual / gate
-                状態は auto / manual の二値で .agents/ 配下のローカルファイル(コミットしない)。
-                既定 = manual(状態ファイル欠落時も manual — fail-closed)。
-                「今すぐ止める」も factory mode manual で即効する
-                gate は night の判定入口: auto のときだけ exit 0
-                (それ以外は理由を stderr に出して非ゼロ)
-                --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
-  tick install  crontab に unattended 運転の起動行を設置する(既存ブロックは置換)
-                # factory-tick begin / end のマーカーブロックだけを操作し、他の行には触れない。
-                生成行は factory tick run を呼ぶ(flock コマンドに依存しない)
-                --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
-                --schedule "<cron 式>" 起動スケジュール(既定: "0 3 * * 1-5" = 平日 3:00)
-  tick remove   マーカーブロックを crontab から除去する(他の行には触れない)
-  tick status   tick の設置有無と内容を表示する
-  tick run      多重起動ロック付きで claude -p <prompt> を 1 回起動する(cron の実行入口)
-                起動前に運転モード(mode gate)を内部で確認し、auto でなければ
-                claude を立てずに exit 0(manual 中のサブスク枠消費をゼロにする)。
-                さらに作業検知プリチェック(Ready issue / 未対応レビュースレッド /
-                factory-review failure / 未回収 merged PR — gh API 3 クエリ)を行い、
-                作業が無ければ claude を立てずに exit 0(短周期 tick でも空振りゼロ)。
-                前回起動時刻は .agents/tick-state に記録(起動時のみ更新)。
-                ロックは Go 実装(unix: flock(2) / windows: LockFileEx)。取得できなければ
-                他 tick が実行中の正常系として exit 0。claude の終了コードを引き継ぐ
-                --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
-                --prompt <p>           起動するスキル(既定: "/factory:night")
   branch cleanup  マージ済み agent ブランチ(agent/issue-*)を掃除する
                 PR 状態を正として判定(squash マージ運用のため --merged は使えない)。
                 merged / closed の PR に紐づくブランチだけを削除し、現在ブランチ・
@@ -103,7 +74,7 @@ const usage = `使い方: factory <board|issue|pr|docs|flags|mode|tick|gate|bran
                 --repo <owner/name>    対象リポジトリ(省略時: カレントリポジトリ)
   gate          PreToolUse hook の機械的ゲート(factory-gate.sh から exec される)
                 stdin から hook JSON(tool_name / tool_input)を読み、
-                main 直 push / push ゲート / マージゲート / 無人 3 種を判定する。
+                main 直 push / push ゲート / マージゲート / リリースゲートを判定する。
                 ブロック時は理由を stderr に出して exit 2(hook 契約)、通過は exit 0
                 --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
   release <tag> リリースタグを安全に作成して push する(デプロイの引き金 = 人間の操作)
@@ -141,10 +112,6 @@ func Run(args []string, deps Deps) int {
 		return runDocsVerify(args[2:], deps)
 	case "flags check":
 		return runFlagsCheck(args[2:], deps)
-	case "mode status", "mode auto", "mode manual", "mode gate":
-		return runMode(args[1], args[2:], deps)
-	case "tick install", "tick remove", "tick status", "tick run":
-		return runTick(args[1], args[2:], deps)
 	case "branch cleanup":
 		return runBranchCleanup(args[2:], deps)
 	default:

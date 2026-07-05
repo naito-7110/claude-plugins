@@ -21,21 +21,13 @@ type Issue struct {
 	LabelEvents  []LabelEvent
 }
 
-// ReviewThread は fake 上のレビュースレッド。
-type ReviewThread struct {
-	Resolved   bool
-	LastAuthor string // スレッドの最新コメントの投稿者 login
-}
-
 // PullRequest は fake 上の PR の状態。
 type PullRequest struct {
-	Number        int
-	Body          string
-	Files         []string       // changed files のパス
-	HeadRefName   string         // head ブランチ名(カレントブランチの PR 解決に使う)
-	State         string         // "OPEN" | "MERGED" | "CLOSED"(空 = OPEN)
-	MergedAt      string         // RFC3339(State = MERGED のとき)
-	ReviewThreads []ReviewThread // レビュースレッド(tick の作業検知に使う)
+	Number      int
+	Body        string
+	Files       []string // changed files のパス
+	HeadRefName string   // head ブランチ名(カレントブランチの PR 解決に使う)
+	State       string   // "OPEN" | "MERGED" | "CLOSED"(空 = OPEN)
 	// マージゲート(factory gate)用の状態。
 	ClosingIssues []int  // Closes で紐づく issue 番号
 	ChecksState   string // statusCheckRollup.state("" = check なし)
@@ -71,98 +63,6 @@ func (s *Server) findPullRequest(repo string, number int) *PullRequest {
 		}
 	}
 	return nil
-}
-
-// doIssuesListQuery は open issue の一覧(ラベルつき)に応答する。
-// クエリ側の labels フィルタは無視して OPEN 全件を返す(絞り込みの意味論は
-// Go 側の判定がテスト対象のため、fake は素朴に実態を返す)。
-func (s *Server) doIssuesListQuery(vars map[string]interface{}, response interface{}) error {
-	repo := fmt.Sprintf("%v/%v", vars["owner"], vars["name"])
-	nodes := []map[string]interface{}{}
-	for _, issue := range s.Issues[repo] {
-		if issue.State == "CLOSED" {
-			continue
-		}
-		labels := []map[string]string{}
-		for _, name := range issue.Labels {
-			labels = append(labels, map[string]string{"name": name})
-		}
-		nodes = append(nodes, map[string]interface{}{
-			"number": issue.Number,
-			"labels": map[string]interface{}{"nodes": labels},
-		})
-	}
-	return reply(response, map[string]interface{}{
-		"repository": map[string]interface{}{
-			"issues": map[string]interface{}{"nodes": nodes},
-		},
-	})
-}
-
-// doOpenPRWorkQuery は open PR のレビュースレッド・factory-review status・
-// viewer に応答する(tick の作業検知)。
-func (s *Server) doOpenPRWorkQuery(vars map[string]interface{}, response interface{}) error {
-	repo := fmt.Sprintf("%v/%v", vars["owner"], vars["name"])
-	nodes := []map[string]interface{}{}
-	for _, pr := range s.PullRequests[repo] {
-		if pr.State != "" && pr.State != "OPEN" {
-			continue
-		}
-		threads := []map[string]interface{}{}
-		for _, thread := range pr.ReviewThreads {
-			comments := []map[string]interface{}{}
-			if thread.LastAuthor != "" {
-				comments = append(comments, map[string]interface{}{
-					"author": map[string]string{"login": thread.LastAuthor},
-				})
-			}
-			threads = append(threads, map[string]interface{}{
-				"isResolved": thread.Resolved,
-				"comments":   map[string]interface{}{"nodes": comments},
-			})
-		}
-		var status interface{}
-		if pr.ReviewState != "" {
-			status = map[string]interface{}{"context": map[string]string{"state": pr.ReviewState}}
-		}
-		nodes = append(nodes, map[string]interface{}{
-			"number":        pr.Number,
-			"headRefName":   pr.HeadRefName,
-			"reviewThreads": map[string]interface{}{"nodes": threads},
-			"commits": map[string]interface{}{
-				"nodes": []map[string]interface{}{
-					{"commit": map[string]interface{}{"status": status}},
-				},
-			},
-		})
-	}
-	return reply(response, map[string]interface{}{
-		"viewer": map[string]string{"login": s.Viewer},
-		"repository": map[string]interface{}{
-			"pullRequests": map[string]interface{}{"nodes": nodes},
-		},
-	})
-}
-
-// doMergedPRsQuery は merged PR の一覧に応答する(tick の作業検知)。
-func (s *Server) doMergedPRsQuery(vars map[string]interface{}, response interface{}) error {
-	repo := fmt.Sprintf("%v/%v", vars["owner"], vars["name"])
-	nodes := []map[string]interface{}{}
-	for _, pr := range s.PullRequests[repo] {
-		if pr.State != "MERGED" {
-			continue
-		}
-		nodes = append(nodes, map[string]interface{}{
-			"number":      pr.Number,
-			"headRefName": pr.HeadRefName,
-			"mergedAt":    pr.MergedAt,
-		})
-	}
-	return reply(response, map[string]interface{}{
-		"repository": map[string]interface{}{
-			"pullRequests": map[string]interface{}{"nodes": nodes},
-		},
-	})
 }
 
 func (s *Server) doIssueQuery(vars map[string]interface{}, response interface{}) error {

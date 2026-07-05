@@ -11,7 +11,7 @@ tools:
   - Grep
 ---
 
-**対話専用。無人セッションでは実行しない。** ドメインの境界は所有・文書・huddle の品質を決める意思決定であり、人間の確定が必須。判断基準の正準は `${CLAUDE_PLUGIN_ROOT}/adr/domain-partitioning.md`(+ documentation)。
+**対話専用。** ドメインの境界は所有・文書・huddle の品質を決める意思決定であり、人間の確定が必須。判断基準の正準は `${CLAUDE_PLUGIN_ROOT}/adr/domain-partitioning.md`(+ documentation)。
 
 ## 手順
 
@@ -53,7 +53,6 @@ tools:
 
 ## 禁止事項
 
-- 無人実行
 - 人間の確定なしの ownership.yml 変更
 - `factory docs verify` が通らない状態での PR 作成
 - コードの移動(本スキルの成果物は宣言と文書まで。コードのドメイン別再配置は通常の issue として起票する)

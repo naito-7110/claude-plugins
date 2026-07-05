@@ -1,6 +1,6 @@
 ---
 name: review
-description: 別コンテキストレビュア(無人可・tick 起動)。レビュー待ちの agent PR を自分で検出し、diff と憲法だけを材料に独立レビューして commit status(factory-review)で判定を表明する。merge:agent の実行条件「別コンテキストレビュア green」の実体
+description: 別コンテキストレビュア(人間が起動する)。レビュー待ちの agent PR を自分で検出し、diff と憲法だけを材料に独立レビューして commit status(factory-review)で判定を表明する。merge:agent の実行条件「別コンテキストレビュア green」の実体
 tools:
   - Bash(gh, git, factory)
   - Task
@@ -9,7 +9,7 @@ tools:
   - Grep
 ---
 
-**実装から独立していることが存在意義。** 本スキルは tick(または人間)が起動する。**実装セッションや orchestrate から Task で起動してはならない**(起動主体が実装側になった時点で「別コンテキスト」が壊れる)。材料は diff・issue の「確定済みの設計」・憲法のみで、**実装のジャーナル・会話・セルフレビュー結果を読まない**(思い込みを継承しないため)。
+**実装から独立していることが存在意義。** 本スキルは人間が(実装セッションとは別の新しいセッションで)起動する。**実装セッションや orchestrate から Task で起動してはならない**(起動主体が実装側になった時点で「別コンテキスト」が壊れる)。材料は diff・issue の「確定済みの設計」・憲法のみで、**実装のジャーナル・会話・セルフレビュー結果を読まない**(思い込みを継承しないため)。
 
 ## 1. 対象の検出
 
@@ -41,20 +41,13 @@ gh api "repos/{owner}/{repo}/statuses/<head-sha>" \
 - **判定不能**(材料不足・diff が大きすぎる・受け入れ条件が読めない)も **failure**(fail-closed)+ 理由
 - **ラベル・issue 本文・PR 本文を操作しない**。merge:agent を外して人間レーンへ降格するのは orchestrate の回収時(責務分離: レビュアは判定、状態遷移は PM)
 
-## 4. tick 設置(人間が行う)
-
-night と同じ tick 機構・別ロックで回す。**attended 中も回してよい**(agent PR は昼も生まれる):
-
-```bash
-# 20 分間隔の例(多重起動防止は factory tick run が内蔵。ロックは .agents/review.lock — night とは独立)
-*/20 * * * * cd /path/to/repo && /path/to/factory tick run --prompt "/factory:review" >> .agents/review.log 2>&1
-```
+## 4. サーバー側の強制(任意)
 
 `factory-review` を branch protection の required contexts に登録すると、レビュア green なしのマージがサーバー側でも止まる(L3)。
 
 ## 禁止事項
 
-- 実装セッション・orchestrate からの起動(tick または人間のみ)
+- 実装セッション・orchestrate からの起動(人間のみ)
 - 実装ジャーナル・実装セッションの会話・セルフレビュー結果の参照
 - ラベル・本文の操作(判定の表明と指摘コメントまで)
 - 自分の指摘の自動修正(直すのは work。レビュアが直すと自己レビューに退化する)
