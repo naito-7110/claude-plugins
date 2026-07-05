@@ -120,10 +120,10 @@ CLAUDE.md が存在しなければ新規作成する。
 
 ### 6. 文書構造と `.agents/` の scaffold
 
-**文書の地図(`docs/factory/`)** — documentation プリセットの階層に従い、無ければ作成する(既存は壊さない):
+**factory 運用ファイル(`.factory/`)** — 配置の基準は「誰の持ち物か」(documentation プリセット): factory が生成し機械が読む運用ファイルは `.factory/`(dotdir、既存リポジトリの慣習と競合しない)、人間の一次文書(ADR・ドメイン知識)は標準の `docs/` に置く。無ければ作成する(既存は壊さない)。**`.factory/` はコミット対象**(gitignore しない):
 
-- `docs/factory/README.md`: 文書の地図。各層(プリセット + `docs/adr/` / `docs/domains/` / CLAUDE.md マーカー節 / `docs/factory/`)の場所と役割の案内
-- `docs/factory/ownership.yml`: 機械可読な所有マップ。`factory docs verify` が検証する:
+- `.factory/README.md`: 文書の地図。各層(プリセット + `docs/adr/` / `docs/domains/` / CLAUDE.md マーカー節 / `.factory/`)の場所と役割の案内
+- `.factory/ownership.yml`: 機械可読な所有マップ。`factory docs verify` が検証する:
 
 ```yaml
 # パス(glob)→ ドメインの所有マップ
@@ -135,10 +135,7 @@ domains:
 
 - ドメイン未分割のリポジトリは `domains: {}` で開始してよい(漸進導入)
 
-**ドメイン知識(`docs/domains/`)** — 所有マップにドメインを定義した場合、各ドメインの雛形を作成する:
-
-- `docs/domains/README.md`(ドメイン一覧)
-- `docs/domains/<domain>/README.md`(責務・ユビキタス言語・不変条件)・`contracts.md`(公開契約)・`decisions/`
+**ドメインの定義・分割は init では行わない**。`domains: {}` の空マップを置くまでが init の仕事で、ドメインを切る意思決定と `docs/domains/` 雛形の生成は /factory:domains(専用スキル)が対話で行う(分割基準は domain-partitioning プリセット)。
 
 **作業状態(`.agents/`)**:
 
@@ -155,7 +152,7 @@ domains:
 | Projects ボード | ✅ / スキップ |
 | 憲法(CLAUDE.md マーカー節 + docs/adr/ 案内) | ✅ / 既存 ADR を尊重 |
 | CLAUDE.md スタック事実 | ✅ |
-| 文書の地図(docs/factory)+ domains 雛形 | ✅ / 既存を尊重 |
+| factory 運用ファイル(.factory: 地図 + 空の所有マップ) | ✅ / 既存を尊重 |
 | `.agents/` | ✅ |
 
 残る手動作業(提示のみ。実行しない):
