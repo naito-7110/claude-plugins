@@ -20,9 +20,14 @@ type Issue struct {
 
 // PullRequest は fake 上の PR の状態。
 type PullRequest struct {
-	Number int
-	Body   string
-	Files  []string // changed files のパス
+	Number      int
+	Body        string
+	Files       []string // changed files のパス
+	HeadRefName string   // head ブランチ名(カレントブランチの PR 解決に使う)
+	// マージゲート(factory gate)用の状態。
+	ClosingIssues []int  // Closes で紐づく issue 番号
+	ChecksState   string // statusCheckRollup.state("" = check なし)
+	ReviewState   string // factory-review status context の state("" = status なし)
 }
 
 // AddIssue は issue を "owner/name" のリポジトリへ登録する。
@@ -88,6 +93,65 @@ func (s *Server) doIssueQuery(vars map[string]interface{}, response interface{})
 				"labels":        map[string]interface{}{"nodes": labels},
 				"timelineItems": map[string]interface{}{"nodes": events},
 			},
+		},
+	})
+}
+
+// doMergeStatusQuery はマージゲートの状態クエリ(Closes 紐づけ・CI rollup・
+// factory-review status)に応答する。
+func (s *Server) doMergeStatusQuery(vars map[string]interface{}, response interface{}) error {
+	repo := fmt.Sprintf("%v/%v", vars["owner"], vars["name"])
+	pr := s.findPullRequest(repo, asInt(vars["number"]))
+	if pr == nil {
+		return reply(response, map[string]interface{}{
+			"repository": map[string]interface{}{"pullRequest": nil},
+		})
+	}
+	closing := []map[string]int{}
+	for _, number := range pr.ClosingIssues {
+		closing = append(closing, map[string]int{"number": number})
+	}
+	var rollup interface{}
+	if pr.ChecksState != "" {
+		rollup = map[string]string{"state": pr.ChecksState}
+	}
+	var status interface{}
+	if pr.ReviewState != "" {
+		status = map[string]interface{}{"context": map[string]string{"state": pr.ReviewState}}
+	} else {
+		status = map[string]interface{}{"context": nil}
+	}
+	return reply(response, map[string]interface{}{
+		"repository": map[string]interface{}{
+			"pullRequest": map[string]interface{}{
+				"closingIssuesReferences": map[string]interface{}{"nodes": closing},
+				"commits": map[string]interface{}{
+					"nodes": []map[string]interface{}{
+						{"commit": map[string]interface{}{
+							"statusCheckRollup": rollup,
+							"status":            status,
+						}},
+					},
+				},
+			},
+		},
+	})
+}
+
+// doPRByBranchQuery は headRefName による OPEN PR の解決に応答する。
+func (s *Server) doPRByBranchQuery(vars map[string]interface{}, response interface{}) error {
+	repo := fmt.Sprintf("%v/%v", vars["owner"], vars["name"])
+	branch := fmt.Sprintf("%v", vars["branch"])
+	nodes := []map[string]int{}
+	for _, pr := range s.PullRequests[repo] {
+		if pr.HeadRefName == branch {
+			nodes = append(nodes, map[string]int{"number": pr.Number})
+			break
+		}
+	}
+	return reply(response, map[string]interface{}{
+		"repository": map[string]interface{}{
+			"pullRequests": map[string]interface{}{"nodes": nodes},
 		},
 	})
 }
