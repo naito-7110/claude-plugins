@@ -152,10 +152,13 @@ domains:
 - Releases(タグ `factory/vX.Y.Z`)から OS / arch に合う factory バイナリを `gh release download` で取得し、checksums.txt を検証して `.agents/bin/factory` に置く(`.agents/` は gitignore 済み — バイナリをコミットしない)
 - リリースが未整備・取得不能な場合はスキップし、その旨を完了報告に載せる(hook ゲート・スキルの前提チェックはバイナリ無しでは縮退動作になる)
 
-### 6.5 hook ゲートの設置提案(自動書き換えしない)
+### 6.5 hook ゲートの検査
 
-- `${CLAUDE_PLUGIN_ROOT}/hooks/README.md` の設置スニペット(実パスに展開して提示)を示し、**ユーザーレベル settings(~/.claude/settings.json)への追記を人間に依頼**する。settings は人間の領域であり、init は書き換えない
-- 設置状態(settings に factory-gate の記載があるか)を検査し、完了報告に載せる。**夜間無人(Phase 3)は hook ゲート設置が前提条件**であることを添える
+hook はプラグインの `hooks/hooks.json` により**プラグイン有効化で自動登録される**(手動の settings 編集は不要)。init が行うのは検査と案内のみ:
+
+- 実行依存(`jq`・factory バイナリ)が揃っているかを確認する
+- hook の有効性を確認する(登録状態は `/hooks` で確認できる旨を案内。プラグイン更新直後は新しいセッションで反映されることも添える)
+- 結果を完了報告に載せる。**夜間無人(Phase 3)は hook ゲートの有効化が前提条件**であることを添える
 
 ### 7. 完了報告
 
@@ -170,7 +173,7 @@ domains:
 | factory 運用ファイル(.factory: 地図 + 空の所有マップ) | ✅ / 既存を尊重 |
 | issue / PR テンプレート(.github) | ✅ / 既存は確認の上 |
 | factory バイナリ(.agents/bin) | ✅ / スキップ(リリース未整備) |
-| hook ゲート | 設置済み / 未設置(スニペット提示のみ) |
+| hook ゲート | 有効(自動登録) / 要確認(依存欠落・新セッション待ち) |
 | `.agents/` | ✅ |
 
 残る手動作業(提示のみ。実行しない):

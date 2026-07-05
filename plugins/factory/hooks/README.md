@@ -1,6 +1,14 @@
 # factory hooks — 機械的ゲート
 
-`factory-gate.sh` は Claude Code の PreToolUse hook として動く**薄い入口**で、判定の実体は factory バイナリ(`issue verify` / `pr verify`)に一本化されている。拒否は exit 2 + stderr の理由で行われ、エージェントはその理由をそのままエスカレーション材料に使える。
+`factory-gate.sh` は PreToolUse hook として動く**薄い入口**で、判定の実体は factory バイナリ(`issue verify` / `pr verify`)に一本化されている。拒否は exit 2 + stderr の理由で行われ、エージェントはその理由をそのままエスカレーション材料に使える。
+
+## 登録(自動)
+
+`hooks/hooks.json` により、**プラグインを有効化すると自動で登録される**(Claude Code のプラグイン hooks 機構)。手動の settings 編集は不要。
+
+- hooks はセッション開始時に読み込まれる(プラグイン更新後は新しいセッションで反映)
+- 登録状態は `/hooks` で確認できる
+- 実行時の依存: `bash` / `jq` / `gh` / factory バイナリ(`.agents/bin/factory` または PATH — /factory:init が取得する。無い場合、マージ・配車ゲートは fail-closed で停止する)
 
 ## ゲート一覧
 
@@ -15,33 +23,7 @@
 
 無人モードの判定は sentinel ファイル **`.agents/unattended`** の存在(night スキルが作成・削除する)。
 
-## 設置(人間が行う)
-
-**ユーザーレベルの settings**(`~/.claude/settings.json`)に追記する。プロジェクトの settings はエージェント自身が触れる場所のため、防護としてはユーザーレベルに置くこと(hooks はセッション開始時にスナップショットされる):
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash|Write|Edit|Task",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash <plugin-cache-path>/factory/hooks/factory-gate.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`<plugin-cache-path>` はプラグインの実体パス(/factory:init が検査時に実パスを提示する)。
-
-依存: `bash` / `jq` / `gh` / factory バイナリ(`.agents/bin/factory` または PATH — /factory:init が取得を提案する)。
-
-## 検証手順(設置後)
+## 検証手順
 
 ```bash
 # 1. main 直 push が止まること
