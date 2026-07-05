@@ -64,3 +64,14 @@ flowchart LR
 | `needs-human` | 人間の判断待ち。エージェントは触らない |
 | `priority:high` / `priority:low` | 優先度 |
 | `merge:agent` | マージ軸(着手軸と直交)。grooming で AI が merge-policy を基に提案し、人間が承認して Ready 化と同時に付与(無人セッションは付与不可)。付いていれば agent がマージまで実行、無ければ人間マージが既定 |
+
+## やめるとき
+
+プラグイン機構に uninstall フックは無いため、**本体を uninstall する前に** `/factory:uninstall` を実行する(tick の撤去 → ローカル状態の削除 → 残るものの提示)。手動なら最低限これだけ:
+
+```bash
+factory tick remove   # cron の起動行を撤去(最重要)
+rm -rf .agents/       # ローカル状態(退避物がないか確認してから)
+```
+
+committed の設置物(.factory/ / docs/adr / .github/)はプロジェクトの所有物なので削除しない。required check を外す場合は **workflow の削除より先に** branch protection の contexts から除去する(逆順だと全 PR が pending で詰まる)。
