@@ -1,0 +1,14 @@
+# factory が設置する dependabot 設定(supply-chain-security プリセット)。
+# - github-actions: workflow の SHA 固定 + タグコメントを自動追随させる
+#   (factory-issue-check.yml を含む。SHA の風化はこれで防ぐ)
+# - cooldown: 公開直後のバージョンを即採用しない(導入のクールダウン)
+# 言語のパッケージ ecosystem(npm / nuget 等)は、スタック確定後に
+# supply-chain レシピを参照して追記する。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
