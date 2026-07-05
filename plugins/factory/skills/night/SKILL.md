@@ -37,17 +37,27 @@ orchestrate スキルを実行する。制動条件(人間レーン PR 滞留・
 - `.agents/unattended` を削除する(orchestrate が失敗しても必ず)
 - orchestrate のサイクル報告を運用 issue へコメントする(report の入力データになる)
 
-## cron 設置(人間が行う)
+## 起動機構(tick)の設置(人間が行う)
 
-多重起動防止は cron 側の `flock` で行う:
+**本質は cron ではない。** orchestrate は re-entrant(台帳 + GitHub の状態から毎回復元して 1 サイクルで終わる)なので、「常駐」と「定期起動」は外側の周期の違いでしかない。**1 つの常駐プロセスに寄せない理由**: プロセスが死んだ瞬間に工場が止まる(監視が要る)・コンテキストが伸び続ける。定期 tick なら死んでも次の tick で必ず蘇り、毎回フレッシュなコンテキストで動く。**リアルタイム性が欲しければ間隔を縮めればよい**。
 
-```cron
-# 平日 3:00 に無人実行(パスは環境に合わせる)
+いずれの方式でも多重起動防止は `flock` で行う:
+
+```bash
+# 方式 A: cron(最も堅い。夜だけ回す例)
 0 3 * * 1-5 cd /path/to/repo && flock -n .agents/night.lock -c 'claude -p "/factory:night" >> .agents/night.log 2>&1'
+
+# 方式 B: 準リアルタイムの常駐風ラッパー(15 分間隔の tick。稼働時間帯は好みで)
+while true; do
+  flock -n .agents/night.lock -c 'claude -p "/factory:night" >> .agents/night.log 2>&1' || true
+  sleep 900
+done
 ```
 
+- launchd / systemd timer も方式 A の同類として使える
 - ログは `.agents/night.log`(gitignore 領域)
-- 停止したいときは crontab の行をコメントアウトするだけでよい(工場の耐久状態はすべて GitHub にあるため、いつ止めても壊れない)
+- 停止はいつでも安全(tick を止めるだけ。工場の耐久状態はすべて GitHub にあるため、どのタイミングで止めても壊れない)
+- issue イベント駆動(webhook で即起動)は将来の拡張候補(現状は tick 間隔の短縮で近似できる)
 
 ## 禁止事項
 
