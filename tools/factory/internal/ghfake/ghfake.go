@@ -89,6 +89,10 @@ func (s *Server) Do(query string, vars map[string]interface{}, response interfac
 		return s.doLink(vars, response)
 	case strings.Contains(query, "repositoryOwner"):
 		return s.doOwnerID(vars, response)
+	case strings.Contains(query, "closingIssuesReferences"):
+		return s.doMergeStatusQuery(vars, response)
+	case strings.Contains(query, "pullRequests("):
+		return s.doPRByBranchQuery(vars, response)
 	case strings.Contains(query, "pullRequest(number:"):
 		return s.doPullRequestQuery(vars, response)
 	case strings.Contains(query, "issue(number:"):
