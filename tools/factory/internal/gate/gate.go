@@ -4,16 +4,12 @@
 // bash 実装と同一(#73: 移行のみ。ゲートの追加・仕様変更はしない)。シェル側は
 // バイナリを exec するだけの薄いラッパーになり、grep / jq への依存が消える。
 //
-// ゲート(#4 の hook 集約決定):
+// ゲート(#4 の hook 集約決定。無人 3 種は #122 で撤去 — 人間常駐前提):
 //  1. main への直 push / force push: 常にブロック
 //  2. push ゲート: agent/issue-<n>-* ブランチの push 前に issue の状態を検証
 //  3. マージゲート: PR↔issue 整合 + Closes 紐づけ + merge:agent + CI green +
 //     別コンテキストレビュア(factory-review status = success)
-//  4. 無人モード(.agents/unattended が存在):
-//     - docs/adr/ への Write / Edit をブロック(改憲は対話専用)
-//     - merge:agent ラベルの付与・変更をブロック(付与は grooming 限定)
-//     - 配車(Task)前に対象 issue を検証
-//  5. リリースゲート: factory release の実行(--dry-run を除く)とタグ push を
+//  4. リリースゲート: factory release の実行(--dry-run を除く)とタグ push を
 //     常にブロック(merge-policy: デプロイ = 人間の tag push。release を便利
 //     コマンド化した瞬間に AI が押せる引き金になるため、hook で塞ぐ — #101)
 //
@@ -37,9 +33,7 @@ import (
 type Input struct {
 	ToolName  string `json:"tool_name"`
 	ToolInput struct {
-		FilePath string `json:"file_path"` // Write / Edit
-		Prompt   string `json:"prompt"`    // Task
-		Command  string `json:"command"`   // Bash
+		Command string `json:"command"` // Bash
 	} `json:"tool_input"`
 }
 
@@ -57,10 +51,9 @@ func ParseInput(r io.Reader) (Input, error) {
 type Deps struct {
 	NewClient  func() (verify.GraphQL, error)
 	Repo       func() (string, error)
-	Branch     func() (string, error) // カレントブランチ(unborn でも名前を返す実装を注入する)
-	Managed    bool                   // factory 管理下か(.factory/ の有無。呼び出し側が解決する)
-	Unattended bool                   // .agents/unattended の有無(呼び出し側が解決する)
-	Err        io.Writer              // verify 所見の出力先(ブロック理由の判断材料)
+	Branch  func() (string, error) // カレントブランチ(unborn でも名前を返す実装を注入する)
+	Managed bool                   // factory 管理下か(.factory/ の有無。呼び出し側が解決する)
+	Err     io.Writer              // verify 所見の出力先(ブロック理由の判断材料)
 }
 
 // --- コマンド検出(bash 版の grep -E と同一のパターン)---
@@ -79,8 +72,6 @@ var (
 	digitsPattern     = regexp.MustCompile(`[0-9]+`)
 
 	branchIssuePattern = regexp.MustCompile(`^agent/issue-([0-9]+)`)
-	taskIssuePattern   = regexp.MustCompile(`issue\s*#?([0-9]+)`)
-	labelEditPattern   = regexp.MustCompile(`gh\s+issue\s+edit|gh\s+pr\s+edit|--add-label`)
 
 	// リリースゲート: factory release の起動(パス付き .agents/bin/factory も拾う)と、
 	// タグを push するコマンド(--tags / refs/tags/ / factory/v* 引数)。
@@ -99,10 +90,6 @@ func Check(input Input, deps Deps) (string, error) {
 		return "", nil
 	}
 	switch input.ToolName {
-	case "Write", "Edit":
-		return checkWrite(input, deps), nil
-	case "Task":
-		return checkTask(input, deps), nil
 	case "Bash":
 		return checkBash(input, deps), nil
 	default:
@@ -110,37 +97,7 @@ func Check(input Input, deps Deps) (string, error) {
 	}
 }
 
-// --- Write / Edit: 無人モードの改憲ブロック(対話中は permission フローに任せる)---
-
-func checkWrite(input Input, deps Deps) string {
-	if !deps.Unattended {
-		return ""
-	}
-	file := input.ToolInput.FilePath
-	if strings.HasPrefix(file, "docs/adr/") || strings.Contains(file, "/docs/adr/") {
-		return "無人モード中は docs/adr/ への書き込みを禁止しています(改憲は対話専用 — /factory:adr)"
-	}
-	return ""
-}
-
-// --- Task: 配車ゲート(無人モードのみ)---
-
-func checkTask(input Input, deps Deps) string {
-	if !deps.Unattended {
-		return ""
-	}
-	match := taskIssuePattern.FindStringSubmatch(input.ToolInput.Prompt)
-	if match == nil {
-		return "無人配車のプロンプトに issue 番号が必要です(配車規約)"
-	}
-	number, _ := strconv.Atoi(match[1])
-	if !issueVerifyOK(deps, number) {
-		return fmt.Sprintf("issue #%d は配車条件を満たしません(上記の理由を確認してください)", number)
-	}
-	return ""
-}
-
-// --- Bash: push ゲート・マージゲート・無人ラベルゲート ---
+// --- Bash: push ゲート・マージゲート・リリースゲート ---
 
 func checkBash(input Input, deps Deps) string {
 	cmd := input.ToolInput.Command
@@ -148,7 +105,7 @@ func checkBash(input Input, deps Deps) string {
 		return ""
 	}
 
-	// 5. リリースゲート(常時): デプロイの引き金は人間の操作。
+	// 4. リリースゲート(常時): デプロイの引き金は人間の操作。
 	if reason := checkRelease(cmd); reason != "" {
 		return reason
 	}
@@ -171,11 +128,6 @@ func checkBash(input Input, deps Deps) string {
 		if reason := checkMerge(cmd, deps); reason != "" {
 			return reason
 		}
-	}
-
-	// 4. 無人モードの merge:agent 付与ブロック
-	if deps.Unattended && strings.Contains(cmd, "merge:agent") && labelEditPattern.MatchString(cmd) {
-		return "無人モード中の merge:agent 付与・変更は禁止です(付与は grooming の場に限定 — merge-policy)"
 	}
 	return ""
 }

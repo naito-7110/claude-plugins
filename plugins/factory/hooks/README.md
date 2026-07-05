@@ -8,21 +8,16 @@
 
 - hooks はセッション開始時に読み込まれる(プラグイン更新後は新しいセッションで反映)
 - 登録状態は `/hooks` で確認できる
-- 実行時の依存: `bash` / `jq` / `gh` / factory バイナリ(`.agents/bin/factory` または PATH — /factory:init が取得する。無い場合、マージ・配車ゲートは fail-closed で停止する)
+- 実行時の依存: `bash` / `jq` / `gh` / factory バイナリ(`.agents/bin/factory` または PATH — /factory:init が取得する。無い場合、マージゲートは fail-closed で停止する)
 
 ## ゲート一覧
 
-| ゲート | 常時 / 無人時 | 判定 |
-| --- | --- | --- |
-| main 直 push / force push | 常時 | 常にブロック(git-workflow) |
-| push ゲート | 常時 | `agent/issue-<n>-*` ブランチの push 前に `factory issue verify`(ラベルなしの実装は push 不可) |
-| マージゲート | 常時 | `factory pr verify` + Closes 紐づけ + 紐づく issue の `merge:agent` + CI green + **factory-review status = success**(merge-policy の全実行条件) |
-| 改憲ブロック | 無人時のみ | `docs/adr/` への Write / Edit を拒否(改憲は対話専用) |
-| merge:agent 付与ブロック | 無人時のみ | ラベル付与・変更コマンドを拒否(付与は grooming 限定) |
-| 配車ゲート | 無人時のみ | Task 起動前に対象 issue を `factory issue verify` |
-| リリースゲート | 常時 | `factory release` の実行・タグ push(`--tags` / `refs/tags/` / `factory/v*`)をブロック(`--dry-run` は許可)— デプロイは人間の tag push(merge-policy) |
-
-無人モードの判定は sentinel ファイル **`.agents/unattended`** の存在(night スキルが作成・削除する)。
+| ゲート | 判定 |
+| --- | --- |
+| main 直 push / force push | 常にブロック(git-workflow) |
+| push ゲート | `agent/issue-<n>-*` ブランチの push 前に `factory issue verify`(ラベルなしの実装は push 不可) |
+| マージゲート | `factory pr verify` + Closes 紐づけ + 紐づく issue の `merge:agent` + CI green + **factory-review status = success**(merge-policy の全実行条件) |
+| リリースゲート | `factory release` の実行・タグ push(`--tags` / `refs/tags/` / `factory/v*`)をブロック(`--dry-run` は許可)— デプロイは人間の tag push(merge-policy) |
 
 ## 検証手順
 

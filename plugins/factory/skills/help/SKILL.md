@@ -2,7 +2,7 @@
 name: help
 description: factory の入口(read-only)。使い方の案内(どの場面でどのスキルか)と現状共有(設置/運転/ゲート/作業状態の診断表)に答える。「factory どう使うの」「いまどういう状態?」と聞かれたら使う
 tools:
-  - Bash(gh, factory, git, crontab, ls, cat)
+  - Bash(gh, factory, git, ls, cat)
   - Read
   - Glob
   - Grep
@@ -20,7 +20,6 @@ tools:
 | 仕様を固める | /factory:groom(複数ドメインに跨るなら /factory:huddle が先) | ✅ 受け入れ条件の承認・merge:agent 付与はここだけ |
 | 1 件やらせる | 「issue #N をやって」(/factory:work) | PR レビュー(merge:agent なしの場合) |
 | まとめて回す | /factory:orchestrate(「バックログを進めて」) | エスカレーション対応 |
-| 無人運転 | factory tick install + factory mode auto(night が回る) | 朝の /factory:report を読む・事後レビュー |
 | 憲法を変える | /factory:adr | ✅ 対話専用 |
 | ドメインを切る | /factory:domains | ✅ 対話専用 |
 | やめる | /factory:uninstall | ✅ |
@@ -32,9 +31,9 @@ tools:
 4 群を機械的に収集し、1 枚の表 + 問題があれば「次にやること」で締める:
 
 - **設置**: `.factory/`(README / ownership.yml / flags.yaml)・`.github/`(テンプレート・factory-issue-check.yml・dependabot.yml)・CLAUDE.md のマーカー節・運用ラベル 6 種・ボードのリンク
-- **運転**: factory バイナリ(`--version` 相当)・`factory mode status`・`factory tick status`・sentinel / lock の残留
+- **運転**: factory バイナリの有無・版
 - **ゲート**: hook の有効性(プラグイン有効化 + 依存 jq/gh)・branch protection の required contexts(factory-issue-check / factory-review)
-- **作業状態**: `agent-wip` / `needs-human` / Ready(`agent-ok`)の件数・open の agent PR(レビュー待ち / factory-review 状態)・制動条件への接近(人間レーン PR 滞留・エスカレーション滞留)・運用 issue の直近 report
+- **作業状態**: `agent-wip` / `needs-human` / Ready(`agent-ok`)の件数・open の agent PR(レビュー待ち / factory-review 状態)・制動条件への接近(人間レーン PR 滞留・エスカレーション滞留)
 
 各行は ✅ / ⚠️(縮退動作あり)/ ❌(要対応)で判定し、❌ には解決コマンドか該当スキルを添える。
 

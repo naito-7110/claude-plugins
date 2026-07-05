@@ -1,6 +1,6 @@
 ---
 name: uninstall
-description: factory をやめるときの cleanup(対話専用)。tick の撤去 → ローカル状態(.agents/)の削除 → 残るもの(committed 設置物・GitHub 側)の一覧提示。プラグイン機構に uninstall フックは無いため、プラグイン本体を uninstall する前にこれを実行する
+description: factory をやめるときの cleanup(対話専用)。ローカル状態(.agents/)の削除 → 残るもの(committed 設置物・GitHub 側)の一覧提示。プラグイン機構に uninstall フックは無いため、プラグイン本体を uninstall する前にこれを実行する
 tools:
   - Bash(factory, crontab, rm, ls, gh)
   - Read
@@ -11,14 +11,9 @@ tools:
 
 ## 手順
 
-### 1. tick の撤去(最重要 — 最初に行う)
+### 1. 旧版の残骸確認(v0.2.x 以前から使っている場合のみ)
 
-```bash
-factory tick remove
-factory tick status   # ブロックが消えたことを確認
-```
-
-放置すると uninstall 後も cron が `claude -p` を起動し続ける。review 用など複数の tick を入れている場合は crontab を直接確認し、factory 関連の行をすべて除去する(`crontab -l | grep -n factory`)。
+旧版の無人運転機構(#122 で撤去)が crontab に行を残していることがある。`crontab -l 2>/dev/null | grep -n factory` でヒットしたら、`# factory-tick begin / end` のマーカーブロックを手で除去する(放置すると uninstall 後も cron が `claude -p` を起動し続ける)。
 
 ### 2. ローカル状態の削除
 
@@ -28,7 +23,7 @@ factory tick status   # ブロックが消えたことを確認
 rm -rf .agents/
 ```
 
-これで運転状態(mode)・lock・sentinel・factory バイナリ・台帳・ジャーナルがすべて消える(`.agents/` は gitignore 領域なのでリポジトリには影響しない)。
+これで factory バイナリ・台帳・ジャーナル(旧版の運転状態ファイルが残っていればそれも)がすべて消える(`.agents/` は gitignore 領域なのでリポジトリには影響しない)。
 
 ### 3. 残るものの一覧提示(削除しない)
 
@@ -45,7 +40,7 @@ rm -rf .agents/
 
 ### 4. 完了報告と案内
 
-- 掃除した項目(tick / .agents)と残した項目の表を提示する
+- 掃除した項目(.agents ほか)と残した項目の表を提示する
 - 最後に案内する: 「プラグイン本体の削除はこの後 `/plugin` の Manage から。hooks・スキルはそれで自動的に解除されます」
 
 ## 禁止事項

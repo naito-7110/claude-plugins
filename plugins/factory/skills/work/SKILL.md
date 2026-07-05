@@ -1,6 +1,6 @@
 ---
 name: work
-description: 中核スキル。issue 番号を受け取り、影響調査 → worktree → TDD 実装 → 検証 → 文書同期 → セルフレビュー → PR 作成(merge:agent なら条件付きでマージまで)を一気通貫で行う。「issue #N をやって」と頼まれたとき、または orchestrate / night からの配車で使う。エスカレーション条件の正準リストは本スキル末尾にあり、他スキルはそこを参照する。args - issue 番号
+description: 中核スキル。issue 番号を受け取り、影響調査 → worktree → TDD 実装 → 検証 → 文書同期 → セルフレビュー → PR 作成(merge:agent なら条件付きでマージまで)を一気通貫で行う。「issue #N をやって」と頼まれたとき、または orchestrate からの配車で使う。エスカレーション条件の正準リストは本スキル末尾にあり、他スキルはそこを参照する。args - issue 番号
 tools:
   - Bash(git, gh, factory)
   - Task
@@ -12,7 +12,7 @@ tools:
   - AskUserQuestion
 ---
 
-対象: `$ARGUMENTS` の issue 番号。**対話でも無人でも動く**。無人時は `AskUserQuestion` を使わず、迷ったら停止してエスカレーションする(fail-closed)。通知・記録はすべて issue コメント(外部サービスを使わない)。
+対象: `$ARGUMENTS` の issue 番号。迷ったら推測で進まず、停止してエスカレーションする(fail-closed)。記録はすべて issue コメント(外部サービスを使わない)。
 
 ## 手順
 
@@ -96,7 +96,7 @@ Projects ボードがあれば Status → In Review。
 
 ### 11. 報告
 
-ジャーナルの要約(調査結果・決定・PR URL・検証結果)を issue コメントへ同期する。対話セッションならユーザーへも報告する。無人時は issue コメントのみで完結する。
+ジャーナルの要約(調査結果・決定・PR URL・検証結果)を issue コメントへ同期し、ユーザーへも報告する。
 
 ## エスカレーション条件(正準リスト)
 
@@ -117,7 +117,7 @@ Projects ボードがあれば Status → In Review。
 1. issue コメントで理由・現状・試したことを説明する
 2. 同じコメントに、取り得る選択肢と各々の利点・欠点を添える(人間がそのまま判断材料に使える形。推奨案があれば明示)
 3. ラベルを付け替える: `gh issue edit <n> --remove-label agent-wip --add-label needs-human`。失格条件(敏感領域・破壊的変更・明記なき依存)に該当した場合は `merge:agent` も外す
-4. 対話中はユーザーへ報告、無人時は issue コメントのみ(通知の追加手段を持たない)
+4. ユーザーへ報告する(記録は issue コメントに残す)
 
 ## レビュー対応モード(orchestrate からの再配車)
 
@@ -133,4 +133,4 @@ Projects ボードがあれば Status → In Review。
 - main への直接コミット・push(hook でも機械強制)
 - 受け入れ条件を満たすためのテスト弱体化・「通すためだけのテスト」(tdd-doctrine)
 - issue 本文の編集(提案はコメントまで。本文は groom の権限)
-- 無人時の `AskUserQuestion`・推測での続行
+- 推測での続行(不明点は `AskUserQuestion` かエスカレーション)

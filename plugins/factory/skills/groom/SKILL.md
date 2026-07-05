@@ -1,6 +1,6 @@
 ---
 name: groom
-description: 仕様揉み(対話専用・無人実行禁止)。issue の曖昧点・エッジケース・受け入れ条件の漏れを人間と 1 論点ずつ確定し、「確定済みの設計」として本文へ書き戻して Ready 化する。merge:agent の付与はこのスキルだけが行える
+description: 仕様揉み(対話専用)。issue の曖昧点・エッジケース・受け入れ条件の漏れを人間と 1 論点ずつ確定し、「確定済みの設計」として本文へ書き戻して Ready 化する。merge:agent の付与はこのスキルだけが行える
 tools:
   - Bash(gh issue view, gh issue edit, gh issue comment, gh issue list, gh project item-list, gh project item-edit, gh repo view)
   - AskUserQuestion
@@ -10,7 +10,7 @@ tools:
   - Grep
 ---
 
-**対話専用。無人セッション(night 等)では絶対に実行しない。** 仕様の確定は人間ゲートであり、このスキルはその意思決定の場を整える。**issue 本文を編集してよいのは本スキルのみ**(triage・work は提案コメントまで)。
+**対話専用。** 仕様の確定は人間ゲートであり、このスキルはその意思決定の場を整える。**issue 本文を編集してよいのは本スキルのみ**(triage・work は提案コメントまで)。
 
 ## 手順
 
@@ -77,7 +77,6 @@ gh issue edit <n> --add-label agent-ok --remove-label needs-human
 
 ## 禁止事項
 
-- 無人実行(人間のいないセッションでの起動)
 - 人間の確認なしの論点確定・本文書き戻し
 - grooming を経ない `merge:agent` 付与
 

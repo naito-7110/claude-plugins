@@ -1,6 +1,6 @@
 # factory
 
-24 時間自律稼働する開発工場を組み立てるプラグイン。設計の全文と進捗は [naito-7110/claude-plugins#4](https://github.com/naito-7110/claude-plugins/issues/4) にある。
+人間が常駐する開発工場を組み立てるプラグイン。issue を起点に、仕様揉み・TDD 実装・独立レビュー・機械ゲートまでの「仕事の流れ方」を提供する(無人自律運転は #122 で撤去)。設計の全文と経緯は [naito-7110/claude-plugins#4](https://github.com/naito-7110/claude-plugins/issues/4) にある。
 
 ## 思想
 
@@ -8,7 +8,7 @@
 2. **ADR = 憲法、エージェントは司法** — エージェントは ADR を解釈・適用する。改憲は人間の承認ゲートを必ず通る。ADR に答えがない設計判断は「ADR 候補の発見」としてエスカレーションする
 3. **人間 = 意思決定、エージェント = 実行** — 人間のゲートは 3 つだけ: 仕様の確定(groom)・改憲(adr)・マージ
 4. **GitHub が唯一の耐久状態** — issue・ラベル・Projects・PR がすべての真実。通知も issue コメントで行う
-5. **迷ったら止まる(fail-closed)** — 無人モードは保守的に。同一失敗 2 回でエスカレーション、推測で進まない
+5. **迷ったら止まる(fail-closed)** — 同一失敗 2 回でエスカレーション、推測で進まない
 
 スタック差分は三層構造で吸収する:
 
@@ -31,7 +31,7 @@ flowchart LR
     Inbox -- triage --> Ready
     Inbox -- 情報不足 --> Spec
     Spec --- G1
-    Ready -- "orchestrate / night が配車" --> InProgress
+    Ready -- "orchestrate が配車" --> InProgress
     InProgress -- "work が PR 作成" --> InReview
     InReview --- G3
     work -. "ADR に答えがない" .-> G2
@@ -49,9 +49,7 @@ flowchart LR
 | `/factory:work` | ✅ | 中核: 影響調査 → worktree → TDD 実装 → 検証 → 文書同期 → セルフレビュー → PR(merge:agent なら条件付きマージまで) |
 | `/factory:domains` | ✅ | ドメイン分割(対話専用): 共変更の実測を根拠に境界を確定し、所有マップと domains 文書を生成 |
 | `/factory:orchestrate` | ✅ | PM: 台帳復元 → ボード読み → 並列配車(最大 2・backpressure)→ 回収 |
-| `/factory:review` | ✅ | 別コンテキストレビュア(tick 起動): agent PR を独立レビューし commit status で判定。merge:agent の最後の条件の実体 |
-| `/factory:night` | ✅ | cron 用の無人起動口: 前提チェック → sentinel → unattended orchestrate → 後始末 |
-| `/factory:report` | ✅ | unattended 期間のダイジェスト: 成果(事後レビュー一覧)・要判断・滞留と健康 |
+| `/factory:review` | ✅ | 別コンテキストレビュア(人間が起動): agent PR を独立レビューし commit status で判定。merge:agent の最後の条件の実体 |
 
 ## 運用ラベル
 
@@ -63,14 +61,13 @@ flowchart LR
 | `agent-wip` | エージェント作業中(ミューテックス) |
 | `needs-human` | 人間の判断待ち。エージェントは触らない |
 | `priority:high` / `priority:low` | 優先度 |
-| `merge:agent` | マージ軸(着手軸と直交)。grooming で AI が merge-policy を基に提案し、人間が承認して Ready 化と同時に付与(無人セッションは付与不可)。付いていれば agent がマージまで実行、無ければ人間マージが既定 |
+| `merge:agent` | マージ軸(着手軸と直交)。grooming で AI が merge-policy を基に提案し、人間が承認して Ready 化と同時に付与。付いていれば agent がマージまで実行、無ければ人間マージが既定 |
 
 ## やめるとき
 
-プラグイン機構に uninstall フックは無いため、**本体を uninstall する前に** `/factory:uninstall` を実行する(tick の撤去 → ローカル状態の削除 → 残るものの提示)。手動なら最低限これだけ:
+プラグイン機構に uninstall フックは無いため、**本体を uninstall する前に** `/factory:uninstall` を実行する(ローカル状態の削除 → 残るものの提示)。手動なら最低限これだけ:
 
 ```bash
-factory tick remove   # cron の起動行を撤去(最重要)
 rm -rf .agents/       # ローカル状態(退避物がないか確認してから)
 ```
 

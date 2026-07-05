@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Inbox 仕分け。運用ラベルを持たない open issue を「エージェントが自律着手できる状態か」で判定し、agent-ok / needs-human / priority を付与して Projects Status を同期する。issue の整理・仕分けを頼まれたとき、または orchestrate / night の Inbox 処理で使う。無人実行可(fail-closed)
+description: Inbox 仕分け。運用ラベルを持たない open issue を「エージェントが自律着手できる状態か」で判定し、agent-ok / needs-human / priority を付与して Projects Status を同期する。issue の整理・仕分けを頼まれたとき、または orchestrate の Inbox 処理で使う
 tools:
   - Bash(gh issue list, gh issue view, gh issue edit, gh issue comment, gh project item-list, gh project item-edit, gh repo view)
   - AskUserQuestion
@@ -9,7 +9,7 @@ tools:
   - Grep
 ---
 
-未整理の open issue を「エージェントが自律着手できる状態か」で仕分ける。**無人実行可**だが、判定は fail-closed(迷ったら needs-human)。
+未整理の open issue を「エージェントが自律着手できる状態か」で仕分ける。判定は fail-closed(迷ったら needs-human)。
 
 ## 手順
 
@@ -46,7 +46,7 @@ gh issue comment <n> --body "受け入れ条件の 3 点目が検証不能です
 gh issue edit <n> --add-label needs-human
 ```
 
-**見送り候補**(重複・方針との矛盾・価値の消失)→ **勝手に閉じない**。理由と選択肢(pros/cons)を添えて人間へ提案する。対話中は `AskUserQuestion`、無人時は issue コメント + `needs-human`。
+**見送り候補**(重複・方針との矛盾・価値の消失)→ **勝手に閉じない**。理由と選択肢(pros/cons)を添えて `AskUserQuestion` で人間へ提案する(判断材料は issue コメントにも残す)。
 
 **迷う** → fail-closed。`agent-ok` にせず、迷った理由をコメントして `needs-human`。
 
@@ -56,7 +56,7 @@ gh issue edit <n> --add-label needs-human
 
 ### 5. トリアージサマリ
 
-最後に必ず表で報告する(無人時は実行元への報告に含める):
+最後に必ず表で報告する:
 
 | # | タイトル | 判定 | 付与ラベル | 理由(1 行) |
 | --- | --- | --- | --- | --- |

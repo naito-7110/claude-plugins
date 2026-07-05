@@ -64,19 +64,6 @@ func managedRoot(t *testing.T) string {
 	return root
 }
 
-// unattendedRoot は .agents/unattended を持つ管理下 root(無人モード)を作る。
-func unattendedRoot(t *testing.T) string {
-	t.Helper()
-	root := managedRoot(t)
-	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".agents", "unattended"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
 // mergeReadyPR は全マージ条件(pr verify green・Closes 紐づけ・merge:agent・
 // CI green・factory-review green)を満たす PR #64 を登録する。
 func mergeReadyPR(server *ghfake.Server) *ghfake.PullRequest {
@@ -130,20 +117,6 @@ func TestGateUnmanagedRepoAllowsEverything(t *testing.T) {
 		result := executeGate(t, testServer(), "main", unmanaged, stdin)
 		assertAllowed(t, result)
 	}
-}
-
-func TestGateUnmanagedUnattendedStillAllowed(t *testing.T) {
-	// 無人 sentinel があっても管理外なら素通し(スコープ判定が先)。
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".agents", "unattended"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	result := executeGate(t, testServer(), "main", root,
-		hookJSON(t, "Write", map[string]interface{}{"file_path": "docs/adr/x.md"}))
-	assertAllowed(t, result)
 }
 
 // --- 1. main への直 push / force push(常時)---
@@ -373,75 +346,23 @@ func TestGateMergeNumberUnresolvedBlocked(t *testing.T) {
 	assertBlocked(t, result, "マージ対象の PR 番号を特定できません")
 }
 
-// --- 4. 無人モード: docs/adr 書き込み・merge:agent 付与・Task 配車 ---
+// --- 4. Write / Edit / Task はゲート対象外(無人 3 種は #122 で撤去)---
 
-func TestGateUnattendedAdrWriteBlocked(t *testing.T) {
-	root := unattendedRoot(t)
-	for _, file := range []string{"docs/adr/0001-x.md", "/repo/docs/adr/0001-x.md"} {
-		result := executeGate(t, testServer(), "main", root,
-			hookJSON(t, "Write", map[string]interface{}{"file_path": file}))
-		assertBlocked(t, result, "無人モード中は docs/adr/ への書き込みを禁止しています")
-	}
-}
-
-func TestGateAttendedAdrWritePasses(t *testing.T) {
-	// 対話中は permission フローに任せる(hook はブロックしない)。
+func TestGateAdrWritePasses(t *testing.T) {
+	// 改憲の保護は対話の permission フローと /factory:adr の手続きに任せる
+	// (hook はブロックしない — 人間常駐前提)。
 	result := executeGate(t, testServer(), "main", managedRoot(t),
 		hookJSON(t, "Edit", map[string]interface{}{"file_path": "docs/adr/0001-x.md"}))
 	assertAllowed(t, result)
 }
 
-func TestGateUnattendedOtherWritePasses(t *testing.T) {
-	result := executeGate(t, testServer(), "main", unattendedRoot(t),
-		hookJSON(t, "Write", map[string]interface{}{"file_path": "src/main.go"}))
-	assertAllowed(t, result)
-}
-
-func TestGateUnattendedTaskReadyPasses(t *testing.T) {
-	server := testServer()
-	readyIssue(server)
-	result := executeGate(t, server, "main", unattendedRoot(t),
-		hookJSON(t, "Task", map[string]interface{}{"prompt": "issue #38 を実装してください"}))
-	assertAllowed(t, result)
-}
-
-func TestGateUnattendedTaskNotReadyBlocked(t *testing.T) {
-	server := testServer()
-	issue := readyIssue(server)
-	issue.Labels = []string{"agent-ok", "needs-human"}
-
-	result := executeGate(t, server, "main", unattendedRoot(t),
-		hookJSON(t, "Task", map[string]interface{}{"prompt": "issue #38 を実装してください"}))
-	assertBlocked(t, result, "issue #38 は配車条件を満たしません")
-	if !strings.Contains(result.err, "needs-human ラベルが付与されています") {
-		t.Errorf("verify の所見が出力されない: %q", result.err)
-	}
-}
-
-func TestGateUnattendedTaskWithoutNumberBlocked(t *testing.T) {
-	result := executeGate(t, testServer(), "main", unattendedRoot(t),
-		hookJSON(t, "Task", map[string]interface{}{"prompt": "適当に進めて"}))
-	assertBlocked(t, result, "無人配車のプロンプトに issue 番号が必要です")
-}
-
-func TestGateAttendedTaskPasses(t *testing.T) {
+func TestGateTaskPasses(t *testing.T) {
 	result := executeGate(t, testServer(), "main", managedRoot(t),
 		hookJSON(t, "Task", map[string]interface{}{"prompt": "適当に進めて"}))
 	assertAllowed(t, result)
 }
 
-func TestGateUnattendedMergeAgentLabelBlocked(t *testing.T) {
-	for _, cmd := range []string{
-		"gh issue edit 38 --add-label merge:agent",
-		"gh pr edit 64 --add-label merge:agent",
-		`gh api -X POST repos/o/r/issues/38/labels -f 'labels[]=merge:agent' --add-label`,
-	} {
-		result := executeGate(t, testServer(), "main", unattendedRoot(t), bashJSON(t, cmd))
-		assertBlocked(t, result, "無人モード中の merge:agent 付与・変更は禁止です")
-	}
-}
-
-func TestGateAttendedMergeAgentLabelPasses(t *testing.T) {
+func TestGateMergeAgentLabelPasses(t *testing.T) {
 	result := executeGate(t, testServer(), "main", managedRoot(t),
 		bashJSON(t, "gh issue edit 38 --add-label merge:agent"))
 	assertAllowed(t, result)
