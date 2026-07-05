@@ -116,8 +116,8 @@ func TestVerifyRejectsDomainNameWithSeparator(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("docs/factory/README.md", "# 地図\n")
-	write("docs/factory/ownership.yml", "domains:\n  \"../escape\":\n    paths: [\"src/**\"]\n")
+	write(DefaultLayout.MapReadme, "# 地図\n")
+	write(DefaultLayout.OwnershipFile, "domains:\n  \"../escape\":\n    paths: [\"src/**\"]\n")
 
 	report, err := Verify(root)
 	if err != nil {

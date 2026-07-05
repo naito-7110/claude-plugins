@@ -6,11 +6,12 @@
 // issue / pr verify と同じく、hook / GHA の薄い入口から呼ばれる
 // (二重実装を持たない。判定はここに一本化する)。
 //
-// 検査項目:
-//   - 地図の存在: docs/factory/README.md(無ければ /factory:init を案内)
-//   - 所有マップの形式: docs/factory/ownership.yml が domains.<name>.paths: [glob]
+// 検査項目(検査対象のパスは Layout / DefaultLayout に単一定義する。
+// 文書の配置は再検討中のため、決定が出たら定義 1 箇所の変更で全体が追随する):
+//   - 地図の存在: Layout.MapReadme(無ければ /factory:init を案内)
+//   - 所有マップの形式: Layout.OwnershipFile が domains.<name>.paths: [glob]
 //     に適合すること。domains: {}(ドメイン未分割)は正常(漸進導入)
-//   - 必須構造: 宣言された各ドメインの docs/domains/<domain>/README.md と contracts.md
+//   - 必須構造: 宣言された各ドメインの Layout.DomainDocs(README.md と contracts.md)
 //   - マップと実パスの整合: glob が実在ファイルに 1 件もマッチしない宣言は NG
 //     (死んだ宣言)。どのドメインにも属さない追跡対象ファイルは警告のみ
 //     (exit code に影響させない。所有の宣言は 1 ドメインから漸進導入できるため)
@@ -41,18 +42,37 @@ import (
 
 // 検査項目の名前。
 const (
-	CheckMap       = "docs-map"        // 地図(docs/factory/README.md)の存在
+	CheckMap       = "docs-map"        // 地図(Layout.MapReadme)の存在
 	CheckOwnership = "ownership"       // 所有マップ(ownership.yml)の形式
 	CheckStructure = "domain-docs"     // ドメイン文書(README.md / contracts.md)の存在
 	CheckPaths     = "ownership-paths" // 所有マップと実パスの整合
 )
 
-// 検証対象の相対パス(documentation プリセット / init scaffold の正準配置)。
-const (
-	mapPath       = "docs/factory/README.md"
-	ownershipPath = "docs/factory/ownership.yml"
-	domainsDir    = "docs/domains"
-)
+// Layout は文書の配置(検査対象の相対パス)の単一定義。
+// 配置は再検討中(#62 のレビュー)のため、パスはこの定義だけに置き、
+// 検査ロジックとテストはすべてここを参照する。配置の決定が出たら
+// DefaultLayout の 1 箇所を変えるだけで全体が追随する。
+type Layout struct {
+	MapReadme     string   // 文書の地図
+	OwnershipFile string   // 所有マップ(domains.<name>.paths: [glob])
+	DomainsDir    string   // ドメイン文書のルート
+	DomainDocs    []string // 各ドメインの必須文書(DomainsDir/<domain>/ 直下)
+	DocsDir       string   // 文書ツリーのルート(所有カバレッジの警告対象外)
+}
+
+// DomainDoc はドメイン文書の相対パス(/ 区切り)を返す。
+func (l Layout) DomainDoc(domain, doc string) string {
+	return path.Join(l.DomainsDir, domain, doc)
+}
+
+// DefaultLayout は documentation プリセット / init scaffold の正準配置。
+var DefaultLayout = Layout{
+	MapReadme:     "docs/factory/README.md",
+	OwnershipFile: "docs/factory/ownership.yml",
+	DomainsDir:    "docs/domains",
+	DomainDocs:    []string{"README.md", "contracts.md"},
+	DocsDir:       "docs",
+}
 
 // initGuidance は scaffold 欠落時の案内(init が生成する)。
 const initGuidance = "/factory:init を実行して文書の地図を生成してください"
@@ -109,23 +129,24 @@ func Verify(root string) (Report, error) {
 		return Report{}, fmt.Errorf("root がディレクトリではありません: %s", root)
 	}
 	report := Report{Root: root}
+	layout := DefaultLayout
 
 	// 地図の存在。所有マップと独立に検査する(欠落は両方報告する)。
-	if fileExists(filepath.Join(root, filepath.FromSlash(mapPath))) {
-		report.add(CheckMap, verify.LevelOK, "%s(文書の地図)あり", mapPath)
+	if fileExists(filepath.Join(root, filepath.FromSlash(layout.MapReadme))) {
+		report.add(CheckMap, verify.LevelOK, "%s(文書の地図)あり", layout.MapReadme)
 	} else {
 		report.add(CheckMap, verify.LevelNG,
-			"%s(文書の地図)がありません(%s)", mapPath, initGuidance)
+			"%s(文書の地図)がありません(%s)", layout.MapReadme, initGuidance)
 	}
 
 	// 所有マップの形式。パースできなければ以降の検査は成立しない。
-	domains, ok := loadOwnership(&report, root)
+	domains, ok := loadOwnership(&report, root, layout)
 	if !ok {
 		return report, nil
 	}
 	if len(domains) == 0 {
 		report.add(CheckOwnership, verify.LevelOK,
-			"%s は正常(ドメイン未分割: domains: {}。漸進導入のため正常)", ownershipPath)
+			"%s は正常(ドメイン未分割: domains: {}。漸進導入のため正常)", layout.OwnershipFile)
 		return report, nil
 	}
 	names := make([]string, 0, len(domains))
@@ -134,29 +155,29 @@ func Verify(root string) (Report, error) {
 	}
 	sort.Strings(names)
 	report.add(CheckOwnership, verify.LevelOK,
-		"%s は正常(ドメイン %d 件: %s)", ownershipPath, len(names), strings.Join(names, ", "))
+		"%s は正常(ドメイン %d 件: %s)", layout.OwnershipFile, len(names), strings.Join(names, ", "))
 
-	checkStructure(&report, root, names)
+	checkStructure(&report, root, layout, names)
 
 	files, err := listTrackedFiles(root)
 	if err != nil {
 		return Report{}, fmt.Errorf("ファイル一覧を取得できません: %w", err)
 	}
-	checkPaths(&report, domains, names, files)
+	checkPaths(&report, layout, domains, names, files)
 	return report, nil
 }
 
 // loadOwnership は ownership.yml を読み、形式検証の所見を report に積む。
 // 以降の検査を続けられるときだけ ok = true を返す。
-func loadOwnership(report *Report, root string) (map[string]domainDecl, bool) {
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(ownershipPath)))
+func loadOwnership(report *Report, root string, layout Layout) (map[string]domainDecl, bool) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(layout.OwnershipFile)))
 	if errors.Is(err, fs.ErrNotExist) {
 		report.add(CheckOwnership, verify.LevelNG,
-			"%s(所有マップ)がありません(%s)", ownershipPath, initGuidance)
+			"%s(所有マップ)がありません(%s)", layout.OwnershipFile, initGuidance)
 		return nil, false
 	}
 	if err != nil {
-		report.add(CheckOwnership, verify.LevelNG, "%s を読めません: %v", ownershipPath, err)
+		report.add(CheckOwnership, verify.LevelNG, "%s を読めません: %v", layout.OwnershipFile, err)
 		return nil, false
 	}
 
@@ -166,13 +187,13 @@ func loadOwnership(report *Report, root string) (map[string]domainDecl, bool) {
 	if err := decoder.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
 		report.add(CheckOwnership, verify.LevelNG,
 			"%s をパースできません(期待する形式: domains.<name>.paths: [glob]): %v",
-			ownershipPath, err)
+			layout.OwnershipFile, err)
 		return nil, false
 	}
 	if doc.Domains == nil {
 		report.add(CheckOwnership, verify.LevelNG,
 			"%s に domains キーがありません(ドメイン未分割でも domains: {} を宣言してください)",
-			ownershipPath)
+			layout.OwnershipFile)
 		return nil, false
 	}
 
@@ -180,7 +201,8 @@ func loadOwnership(report *Report, root string) (map[string]domainDecl, bool) {
 	for name, decl := range doc.Domains {
 		if name == "" || name != path.Clean(name) || strings.ContainsAny(name, "/\\") {
 			report.add(CheckOwnership, verify.LevelNG,
-				"ドメイン名 %q が不正です(docs/domains/ のディレクトリ名になるため、パス区切りを含められません)", name)
+				"ドメイン名 %q が不正です(%s/ のディレクトリ名になるため、パス区切りを含められません)",
+				name, layout.DomainsDir)
 			valid = false
 			continue
 		}
@@ -204,11 +226,11 @@ func loadOwnership(report *Report, root string) (map[string]domainDecl, bool) {
 }
 
 // checkStructure は宣言された各ドメインの必須文書
-// (docs/domains/<domain>/README.md と contracts.md)の存在を検査する。
-func checkStructure(report *Report, root string, names []string) {
+// (Layout.DomainsDir/<domain>/ 直下の Layout.DomainDocs)の存在を検査する。
+func checkStructure(report *Report, root string, layout Layout, names []string) {
 	for _, name := range names {
-		for _, doc := range []string{"README.md", "contracts.md"} {
-			rel := path.Join(domainsDir, name, doc)
+		for _, doc := range layout.DomainDocs {
+			rel := layout.DomainDoc(name, doc)
 			if fileExists(filepath.Join(root, filepath.FromSlash(rel))) {
 				report.add(CheckStructure, verify.LevelOK, "%s あり", rel)
 			} else {
@@ -222,7 +244,7 @@ func checkStructure(report *Report, root string, names []string) {
 // checkPaths は所有マップと実パスの整合を検査する。
 //   - 実在ファイルに 1 件もマッチしないパターン → NG(死んだ宣言)
 //   - どのドメインにも属さない追跡対象のソースファイル → 警告のみ(漸進導入)
-func checkPaths(report *Report, domains map[string]domainDecl, names []string, files []string) {
+func checkPaths(report *Report, layout Layout, domains map[string]domainDecl, names []string, files []string) {
 	owned := make([]bool, len(files))
 	for _, name := range names {
 		for _, pattern := range domains[name].Paths {
@@ -246,7 +268,7 @@ func checkPaths(report *Report, domains map[string]domainDecl, names []string, f
 
 	var unowned []string
 	for i, file := range files {
-		if !owned[i] && isSourceFile(file) {
+		if !owned[i] && isSourceFile(layout, file) {
 			unowned = append(unowned, file)
 		}
 	}
@@ -266,9 +288,9 @@ func checkPaths(report *Report, domains map[string]domainDecl, names []string, f
 }
 
 // isSourceFile は所有カバレッジの警告対象かを判定する。
-// 文書(docs/ 配下・Markdown)と dot 始まりのパス(.github 等の設定)は
+// 文書(Layout.DocsDir 配下・Markdown)と dot 始まりのパス(.github 等の設定)は
 // 所有マップの対象外とする。
-func isSourceFile(file string) bool {
+func isSourceFile(layout Layout, file string) bool {
 	if strings.HasSuffix(file, ".md") {
 		return false
 	}
@@ -277,7 +299,7 @@ func isSourceFile(file string) bool {
 			return false
 		}
 	}
-	return !strings.HasPrefix(file, "docs/")
+	return !strings.HasPrefix(file, layout.DocsDir+"/")
 }
 
 // matchPattern は所有マップの glob パターンとファイルの相対パス(/ 区切り)を

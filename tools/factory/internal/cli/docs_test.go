@@ -7,7 +7,12 @@ import (
 	"testing"
 
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/cli"
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/docs"
 )
+
+// layout は検査対象パスの単一定義(internal/docs)。テストのパスも
+// すべてここを参照し、配置の変更に定義 1 箇所で追随できるようにする。
+var layout = docs.DefaultLayout
 
 // writeFile は root 配下に rel(/ 区切り)のファイルを作る(親ディレクトリごと)。
 func writeFile(t *testing.T, root, rel, content string) {
@@ -21,20 +26,28 @@ func writeFile(t *testing.T, root, rel, content string) {
 	}
 }
 
+// removeFile は root 配下の rel(/ 区切り)を削除する。
+func removeFile(t *testing.T, root, rel string) {
+	t.Helper()
+	if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // scaffoldDocs は documentation プリセットに適合する最小のリポジトリを作る。
 // ドメイン api が src/api/** を所有し、実ファイルと必須文書が揃っている。
 func scaffoldDocs(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	writeFile(t, root, "docs/factory/README.md", "# 文書の地図\n")
-	writeFile(t, root, "docs/factory/ownership.yml", `# パス(glob)→ ドメインの所有マップ
+	writeFile(t, root, layout.MapReadme, "# 文書の地図\n")
+	writeFile(t, root, layout.OwnershipFile, `# パス(glob)→ ドメインの所有マップ
 domains:
   api:
     paths:
       - "src/api/**"
 `)
-	writeFile(t, root, "docs/domains/api/README.md", "# api\n")
-	writeFile(t, root, "docs/domains/api/contracts.md", "# 公開契約\n")
+	writeFile(t, root, layout.DomainDoc("api", "README.md"), "# api\n")
+	writeFile(t, root, layout.DomainDoc("api", "contracts.md"), "# 公開契約\n")
 	writeFile(t, root, "src/api/main.go", "package main\n")
 	return root
 }
@@ -61,8 +74,8 @@ func TestDocsVerifyOK(t *testing.T) {
 func TestDocsVerifyEmptyDomainsOK(t *testing.T) {
 	// domains: {}(ドメイン未分割)は漸進導入のため正常。
 	root := t.TempDir()
-	writeFile(t, root, "docs/factory/README.md", "# 文書の地図\n")
-	writeFile(t, root, "docs/factory/ownership.yml", "domains: {}\n")
+	writeFile(t, root, layout.MapReadme, "# 文書の地図\n")
+	writeFile(t, root, layout.OwnershipFile, "domains: {}\n")
 
 	result := executeDocs(t, root)
 	if result.code != cli.ExitOK {
@@ -77,15 +90,13 @@ func TestDocsVerifyEmptyDomainsOK(t *testing.T) {
 
 func TestDocsVerifyMissingMapFails(t *testing.T) {
 	root := scaffoldDocs(t)
-	if err := os.Remove(filepath.Join(root, "docs", "factory", "README.md")); err != nil {
-		t.Fatal(err)
-	}
+	removeFile(t, root, layout.MapReadme)
 
 	result := executeDocs(t, root)
 	if result.code != cli.ExitError {
 		t.Fatalf("code = %d, want %d", result.code, cli.ExitError)
 	}
-	if !strings.Contains(result.out, "docs/factory/README.md(文書の地図)がありません") {
+	if !strings.Contains(result.out, layout.MapReadme+"(文書の地図)がありません") {
 		t.Errorf("理由が出力されない: %q", result.out)
 	}
 	if !strings.Contains(result.out, "/factory:init を実行") {
@@ -97,22 +108,20 @@ func TestDocsVerifyMissingMapFails(t *testing.T) {
 
 func TestDocsVerifyMissingOwnershipFails(t *testing.T) {
 	root := scaffoldDocs(t)
-	if err := os.Remove(filepath.Join(root, "docs", "factory", "ownership.yml")); err != nil {
-		t.Fatal(err)
-	}
+	removeFile(t, root, layout.OwnershipFile)
 
 	result := executeDocs(t, root)
 	if result.code != cli.ExitError {
 		t.Fatalf("code = %d, want %d", result.code, cli.ExitError)
 	}
-	if !strings.Contains(result.out, "docs/factory/ownership.yml(所有マップ)がありません") {
+	if !strings.Contains(result.out, layout.OwnershipFile+"(所有マップ)がありません") {
 		t.Errorf("理由が出力されない: %q", result.out)
 	}
 }
 
 func TestDocsVerifyBrokenYAMLFails(t *testing.T) {
 	root := scaffoldDocs(t)
-	writeFile(t, root, "docs/factory/ownership.yml", "domains: [broken\n")
+	writeFile(t, root, layout.OwnershipFile, "domains: [broken\n")
 
 	result := executeDocs(t, root)
 	if result.code != cli.ExitError {
@@ -126,7 +135,7 @@ func TestDocsVerifyBrokenYAMLFails(t *testing.T) {
 func TestDocsVerifyUnknownFieldFails(t *testing.T) {
 	// domains.<name>.paths 以外のキーは形式違反(タイポの検出)。
 	root := scaffoldDocs(t)
-	writeFile(t, root, "docs/factory/ownership.yml", `domains:
+	writeFile(t, root, layout.OwnershipFile, `domains:
   api:
     path:
       - "src/api/**"
@@ -143,7 +152,7 @@ func TestDocsVerifyUnknownFieldFails(t *testing.T) {
 
 func TestDocsVerifyMissingDomainsKeyFails(t *testing.T) {
 	root := scaffoldDocs(t)
-	writeFile(t, root, "docs/factory/ownership.yml", "# 空の所有マップ\n")
+	writeFile(t, root, layout.OwnershipFile, "# 空の所有マップ\n")
 
 	result := executeDocs(t, root)
 	if result.code != cli.ExitError {
@@ -157,7 +166,7 @@ func TestDocsVerifyMissingDomainsKeyFails(t *testing.T) {
 func TestDocsVerifyEmptyPathsFails(t *testing.T) {
 	// paths の無いドメイン宣言は所有の実体が無い(形式違反)。
 	root := scaffoldDocs(t)
-	writeFile(t, root, "docs/factory/ownership.yml", "domains:\n  api: {}\n")
+	writeFile(t, root, layout.OwnershipFile, "domains:\n  api: {}\n")
 
 	result := executeDocs(t, root)
 	if result.code != cli.ExitError {
@@ -168,34 +177,30 @@ func TestDocsVerifyEmptyPathsFails(t *testing.T) {
 	}
 }
 
-// --- 必須構造(docs/domains/<domain>/)---
+// --- 必須構造(ドメイン文書)---
 
 func TestDocsVerifyMissingContractsFails(t *testing.T) {
 	root := scaffoldDocs(t)
-	if err := os.Remove(filepath.Join(root, "docs", "domains", "api", "contracts.md")); err != nil {
-		t.Fatal(err)
-	}
+	removeFile(t, root, layout.DomainDoc("api", "contracts.md"))
 
 	result := executeDocs(t, root)
 	if result.code != cli.ExitError {
 		t.Fatalf("code = %d, want %d", result.code, cli.ExitError)
 	}
-	if !strings.Contains(result.out, "docs/domains/api/contracts.md がありません") {
+	if !strings.Contains(result.out, layout.DomainDoc("api", "contracts.md")+" がありません") {
 		t.Errorf("理由が出力されない: %q", result.out)
 	}
 }
 
 func TestDocsVerifyMissingDomainReadmeFails(t *testing.T) {
 	root := scaffoldDocs(t)
-	if err := os.Remove(filepath.Join(root, "docs", "domains", "api", "README.md")); err != nil {
-		t.Fatal(err)
-	}
+	removeFile(t, root, layout.DomainDoc("api", "README.md"))
 
 	result := executeDocs(t, root)
 	if result.code != cli.ExitError {
 		t.Fatalf("code = %d, want %d", result.code, cli.ExitError)
 	}
-	if !strings.Contains(result.out, "docs/domains/api/README.md がありません") {
+	if !strings.Contains(result.out, layout.DomainDoc("api", "README.md")+" がありません") {
 		t.Errorf("理由が出力されない: %q", result.out)
 	}
 }
@@ -205,7 +210,7 @@ func TestDocsVerifyMissingDomainReadmeFails(t *testing.T) {
 func TestDocsVerifyDeadPatternFails(t *testing.T) {
 	// 実在ファイルに 1 件もマッチしない glob は死んだ宣言。
 	root := scaffoldDocs(t)
-	writeFile(t, root, "docs/factory/ownership.yml", `domains:
+	writeFile(t, root, layout.OwnershipFile, `domains:
   api:
     paths:
       - "src/api/**"
@@ -239,7 +244,7 @@ func TestDocsVerifyUnownedFileWarnsButPasses(t *testing.T) {
 }
 
 func TestDocsVerifyDocsAndDotfilesNotWarned(t *testing.T) {
-	// 文書(docs/・*.md)と dot 始まりのパスは所有カバレッジの警告対象外。
+	// 文書(文書ツリー配下・*.md)と dot 始まりのパスは所有カバレッジの警告対象外。
 	root := scaffoldDocs(t)
 	writeFile(t, root, "README.md", "# repo\n")
 	writeFile(t, root, ".github/workflows/ci.yml", "name: ci\n")
