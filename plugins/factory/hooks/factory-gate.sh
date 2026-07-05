@@ -21,6 +21,10 @@ set -euo pipefail
 INPUT=$(cat)
 TOOL=$(jq -r '.tool_name // empty' <<<"$INPUT")
 
+# hooks は「現在のディレクトリ」で実行される(公式仕様)。相対パス
+# (.agents/ / git コマンド)の基準をプロジェクトルートに固定する。
+cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || true
+
 deny() {
   echo "factory-gate: $1" >&2
   exit 2
