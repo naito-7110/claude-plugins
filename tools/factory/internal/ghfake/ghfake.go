@@ -31,6 +31,7 @@ type Server struct {
 	Projects     []*Project
 	Issues       map[string][]*Issue       // "owner/name" -> issues
 	PullRequests map[string][]*PullRequest // "owner/name" -> PRs
+	Viewer       string                    // 認証ユーザーの login(viewer { login })
 }
 
 // NewServer は空の fake を返す。
@@ -91,6 +92,12 @@ func (s *Server) Do(query string, vars map[string]interface{}, response interfac
 		return s.doOwnerID(vars, response)
 	case strings.Contains(query, "closingIssuesReferences"):
 		return s.doMergeStatusQuery(vars, response)
+	case strings.Contains(query, "reviewThreads("):
+		return s.doOpenPRWorkQuery(vars, response)
+	case strings.Contains(query, "states: MERGED"):
+		return s.doMergedPRsQuery(vars, response)
+	case strings.Contains(query, "issues(states:"):
+		return s.doIssuesListQuery(vars, response)
 	case strings.Contains(query, "pullRequests("):
 		return s.doPRByBranchQuery(query, vars, response)
 	case strings.Contains(query, "pullRequest(number:"):

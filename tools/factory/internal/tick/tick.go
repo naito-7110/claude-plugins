@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/mode"
 )
@@ -148,19 +149,39 @@ func (s SystemExec) Run(dir, name string, args ...string) (int, error) {
 	return 0, nil
 }
 
-// Run は運転モードと多重起動ロックを確認した上で claude -p <prompt> を
-// 1 回起動し、その終了コードを引き継ぐ。次の 2 つはどちらも**正常系**で、
-// 1 行出力して 0 を返す(cron からの起動をエラーにしない):
+// RunOptions は Run の入力。
+type RunOptions struct {
+	Root   string
+	Prompt string           // 空なら DefaultPrompt
+	Repo   string           // owner/name(作業検知に使う。空なら検知をスキップして起動)
+	Client GraphQL          // 作業検知の GraphQL クライアント(nil なら検知をスキップして起動)
+	Now    func() time.Time // 時刻の注入(nil なら time.Now — tdd-doctrine: 時刻はプロセス境界)
+}
+
+// Run は運転モード・多重起動ロック・作業検知を確認した上で
+// claude -p <prompt> を 1 回起動し、その終了コードを引き継ぐ。
+// 次の 3 つはいずれも**正常系**で、1 行出力して 0 を返す
+// (cron からの起動をエラーにしない):
 //
 //   - mode gate 不通過(manual 等): claude を起動する前に mode を内部関数で
-//     確認する。night スキルの手順 0 でも mode gate を見るが、そこまで進むと
-//     claude セッションが 1 本立ってしまう(15 分 tick なら日に 96 回)。
-//     サブスク枠の浪費を止めるため、起動前にここで落とす(night 側の確認は
-//     defense-in-depth として残る)
+//     確認する(night 側の手順 0 は defense-in-depth として残る)
 //   - ロック取得失敗: 他 tick が実行中(多重起動防止)
-func Run(launcher Exec, root, prompt string, out io.Writer) (int, error) {
+//   - 作業検知ゼロ: 4 条件(detect.go)のいずれもヒットしない。短周期
+//     (1 分 tick)でも空振りの claude セッションを立てない(#111)
+//
+// 検知が実行できない(Client 未設定・API 失敗)場合は起動にフォールバック
+// する(取りこぼし防止優先 — 検知はセッション節約の最適化であり、壊れたとき
+// に工場を止めない)。tick-state(前回起動時刻)は claude を起動したときだけ
+// 更新する(空振りで進めると検知と起動の間の取りこぼしが発生する)。
+func Run(launcher Exec, opts RunOptions, out io.Writer) (int, error) {
+	root := opts.Root
+	prompt := opts.Prompt
 	if strings.TrimSpace(prompt) == "" {
 		prompt = DefaultPrompt
+	}
+	now := opts.Now
+	if now == nil {
+		now = time.Now
 	}
 
 	state, err := mode.Load(root)
@@ -186,11 +207,46 @@ func Run(launcher Exec, root, prompt string, out io.Writer) (int, error) {
 	}
 	defer release()
 
+	// 作業検知プリチェック(claude 起動前・すべて Go + gh API)。
+	if reason := precheck(opts, root, now(), out); reason == "" {
+		return 0, nil
+	}
+
+	if err := writeTickState(root, now()); err != nil {
+		return 1, fmt.Errorf("%s を書き込めません: %w", StateFile, err)
+	}
 	code, err := launcher.Run(root, "claude", "-p", prompt)
 	if err != nil {
 		return 1, fmt.Errorf("claude を起動できません: %w", err)
 	}
 	return code, nil
+}
+
+// precheck は起動理由(非空 = 起動する)を返す。検知ゼロのときは 1 行出力して
+// 空文字列を返す。検知が実行できない場合は起動にフォールバックする。
+func precheck(opts RunOptions, root string, now time.Time, out io.Writer) string {
+	if opts.Client == nil || opts.Repo == "" {
+		fmt.Fprintln(out, "==> 作業検知を実行できないため起動します(gh 認証・リポジトリ解決を確認してください)")
+		return "検知不能(フォールバック)"
+	}
+	owner, name, ok := strings.Cut(opts.Repo, "/")
+	if !ok || owner == "" || name == "" {
+		fmt.Fprintf(out, "==> リポジトリ %q を解釈できないため起動します\n", opts.Repo)
+		return "検知不能(フォールバック)"
+	}
+	since := readTickState(root, now)
+	reason, err := detectWork(opts.Client, owner, name, since)
+	if err != nil {
+		// fail-open: 検知の失敗で工場を止めない(claude 側が状況を判断する)。
+		fmt.Fprintf(out, "==> 作業検知に失敗したため起動します(%v)\n", err)
+		return "検知失敗(フォールバック)"
+	}
+	if reason == "" {
+		fmt.Fprintln(out, "==> 作業なし(Ready issue / 未対応スレッド / review failure / 未回収 merged のいずれも無し)— 起動をスキップします")
+		return ""
+	}
+	fmt.Fprintf(out, "==> 作業を検知: %s — claude を起動します\n", reason)
+	return reason
 }
 
 // Remove はマーカーブロックを除去する。ブロック外の行は変更しない。

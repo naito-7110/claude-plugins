@@ -113,7 +113,16 @@ func runTickRun(root, prompt string, deps Deps) int {
 		fmt.Fprintln(deps.Err, "コマンド起動が利用できません")
 		return ExitError
 	}
-	code, err := tick.Run(deps.TickExec, root, prompt, deps.Out)
+	opts := tick.RunOptions{Root: root, Prompt: prompt}
+	// 作業検知の材料(解決できなければ検知なしで起動にフォールバック —
+	// 検知はセッション節約の最適化で、壊れても工場を止めない)。
+	if repo, err := deps.CurrentRepo(); err == nil {
+		if client, err := deps.NewClient(); err == nil {
+			opts.Repo = repo
+			opts.Client = client
+		}
+	}
+	code, err := tick.Run(deps.TickExec, opts, deps.Out)
 	if err != nil {
 		fmt.Fprintln(deps.Err, err)
 		return ExitError
