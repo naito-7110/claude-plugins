@@ -141,6 +141,7 @@ domains:
 
 - `.github/ISSUE_TEMPLATE/template.md` と `.github/PULL_REQUEST_TEMPLATE.md`
 - `.github/workflows/factory-issue-check.yml`(PR↔issue 整合のサーバー側ゲート。`templates/workflows/` から)
+- `.github/dependabot.yml`(github-actions ecosystem + cooldown。**設置した workflow の SHA 固定を風化させないための必須セット**。言語 ecosystem はスタック確定後にレシピを参照して追記)
 - 無ければコピーする。**既にある場合は差分を提示して上書き可否を人間に確認する**(黙って壊さない)。プラグイン更新への追随は init の再実行(同じ確認フロー)で行う
 
 **作業状態(`.agents/`)**:
