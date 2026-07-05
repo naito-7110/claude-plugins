@@ -46,8 +46,8 @@ gh api "repos/{owner}/{repo}/statuses/<head-sha>" \
 night と同じ tick 機構・別ロックで回す。**attended 中も回してよい**(agent PR は昼も生まれる):
 
 ```bash
-# 20 分間隔の例
-*/20 * * * * cd /path/to/repo && flock -n .agents/review.lock -c 'claude -p "/factory:review" >> .agents/review.log 2>&1'
+# 20 分間隔の例(多重起動防止は factory tick run が内蔵。ロックは .agents/review.lock — night とは独立)
+*/20 * * * * cd /path/to/repo && /path/to/factory tick run --prompt "/factory:review" >> .agents/review.log 2>&1
 ```
 
 `factory-review` を branch protection の required contexts に登録すると、レビュア green なしのマージがサーバー側でも止まる(L3)。

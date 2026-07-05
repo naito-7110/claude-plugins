@@ -2,7 +2,7 @@
 name: night
 description: cron 用の無人起動口。前提チェック → .agents/unattended sentinel 作成 → orchestrate を unattended で実行 → sentinel 削除。ガードレール・制動条件の実体は orchestrate 側にある。無人専用(人間がいるなら orchestrate を直接使う)
 tools:
-  - Bash(gh, git, factory, flock, rm, touch, ls)
+  - Bash(gh, git, factory, rm, touch, ls)
   - Skill
   - Read
 ---
@@ -48,15 +48,15 @@ orchestrate スキルを実行する。制動条件(人間レーン PR 滞留・
 
 **本質は cron ではない。** orchestrate は re-entrant(台帳 + GitHub の状態から毎回復元して 1 サイクルで終わる)なので、「常駐」と「定期起動」は外側の周期の違いでしかない。**1 つの常駐プロセスに寄せない理由**: プロセスが死んだ瞬間に工場が止まる(監視が要る)・コンテキストが伸び続ける。定期 tick なら死んでも次の tick で必ず蘇り、毎回フレッシュなコンテキストで動く。**リアルタイム性が欲しければ間隔を縮めればよい**。
 
-いずれの方式でも多重起動防止は `flock` で行う:
+いずれの方式でも起動は `factory tick run` を使う。多重起動防止は tick run が内蔵する(Go 実装のロック。unix は flock(2)・Windows は LockFileEx — **flock コマンドは macOS に存在しない**ため OS コマンドに依存しない。二重起動時の後発は exit 0 の正常系):
 
 ```bash
-# 方式 A: cron(最も堅い。夜だけ回す例)
-0 3 * * 1-5 cd /path/to/repo && flock -n .agents/night.lock -c 'claude -p "/factory:night" >> .agents/night.log 2>&1'
+# 方式 A: cron(最も堅い。夜だけ回す例 — factory tick install が生成する行と同形)
+0 3 * * 1-5 cd /path/to/repo && /path/to/factory tick run >> .agents/night.log 2>&1
 
 # 方式 B: 準リアルタイムの常駐風ラッパー(15 分間隔の tick。稼働時間帯は好みで)
 while true; do
-  flock -n .agents/night.lock -c 'claude -p "/factory:night" >> .agents/night.log 2>&1' || true
+  factory tick run >> .agents/night.log 2>&1 || true
   sleep 900
 done
 ```

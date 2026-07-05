@@ -1,19 +1,29 @@
-// Package tick は unattended 運転の起動機構(cron の tick)を crontab の
-// マーカーブロックとして冪等に管理する。
+// Package tick は unattended 運転の起動機構(cron の tick)を提供する。
 //
 // tick は入れっぱなしでよい(走ってよいかは factory mode が決める — night
-// スキル参照)。本パッケージの責務はマーカーブロック
-// (# factory-tick begin / end)の設置・置換・除去のみで、**ブロック外の行には
-// 一切触れない**。マーカーが壊れている(begin / end が対応しない)場合は
-// 何も書き込まずにエラーを返す(fail-closed: 他の行を壊すくらいなら止まる)。
+// スキル参照)。責務は 2 つ:
 //
-// crontab コマンドはプロセス境界であり、Crontab interface で抽象化する。
-// テストではインメモリ fake(internal/cronfake)を注入し、実 crontab に触れない。
+//  1. crontab のマーカーブロック(# factory-tick begin / end)の設置・置換・
+//     除去。**ブロック外の行には一切触れない**。マーカーが壊れている
+//     (begin / end が対応しない)場合は何も書き込まずにエラーを返す
+//     (fail-closed: 他の行を壊すくらいなら止まる)
+//  2. tick run — 多重起動ロックの下で claude を 1 回起動する実行入口。
+//     ロックは Go 実装(unix: flock(2) / windows: LockFileEx)で行う。
+//     **flock コマンドは util-linux 由来で macOS に存在しない**ため、
+//     生成する cron 行は OS コマンドに依存させない(#97)。
+//     ロック取得失敗 = 他 tick が実行中の正常系で、exit 0 で即終了する
+//
+// crontab コマンドと claude の起動はプロセス境界であり、それぞれ Crontab /
+// Exec interface で抽象化する。テストでは fake を注入し、実環境に触れない。
 package tick
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -32,14 +42,38 @@ const (
 	MarkerEnd   = "# factory-tick end"
 	// DefaultSchedule は既定の起動スケジュール(平日 3:00)。
 	DefaultSchedule = "0 3 * * 1-5"
+	// DefaultPrompt は tick run が起動する既定のスキル。
+	DefaultPrompt = "/factory:night"
 )
 
-// Line は tick の起動行を組み立てる(night スキルの方式 A と同形)。
-// root はリポジトリの絶対パス。flock で多重起動を防ぎ、ログは
-// .agents/night.log(gitignore 領域)へ追記する。
-func Line(root, schedule string) string {
-	return fmt.Sprintf(`%s cd %s && flock -n .agents/night.lock -c 'claude -p "/factory:night" >> .agents/night.log 2>&1'`,
-		schedule, root)
+// promptName は prompt からロック・ログのファイル名を導出する
+// ("/factory:night" → "night"、"/factory:review" → "review")。
+func promptName(prompt string) string {
+	name := strings.ToLower(strings.TrimSpace(prompt[strings.LastIndex(prompt, ":")+1:]))
+	var b strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "tick"
+	}
+	return b.String()
+}
+
+// LockFile は prompt に対応するロックファイルの相対パス(.agents/ 配下)。
+func LockFile(prompt string) string { return ".agents/" + promptName(prompt) + ".lock" }
+
+// LogFile は prompt に対応するログファイルの相対パス(.agents/ 配下)。
+func LogFile(prompt string) string { return ".agents/" + promptName(prompt) + ".log" }
+
+// Line は tick の起動行を組み立てる。root はリポジトリの絶対パス、
+// factoryPath は factory バイナリの絶対パス(cron の PATH は最小のため)。
+// 多重起動防止は factory tick run が内蔵する(flock コマンドを使わない)。
+func Line(root, schedule, factoryPath string) string {
+	return fmt.Sprintf(`%s cd %s && %s tick run >> %s 2>&1`,
+		schedule, root, factoryPath, LogFile(DefaultPrompt))
 }
 
 // ValidateSchedule は cron 式の形式(5 フィールドまたは @ 記法)を軽く検査する。
@@ -60,7 +94,8 @@ func ValidateSchedule(schedule string) error {
 
 // Install は crontab のマーカーブロックを設置する(既存があれば置換)。
 // ブロック外の行は変更しない。replaced は既存ブロックを置換したとき true。
-func Install(c Crontab, root, schedule string) (replaced bool, err error) {
+// 旧形式(flock コマンド)のブロックもマーカーごと置換される(冪等)。
+func Install(c Crontab, root, schedule, factoryPath string) (replaced bool, err error) {
 	if err := ValidateSchedule(schedule); err != nil {
 		return false, err
 	}
@@ -72,11 +107,71 @@ func Install(c Crontab, root, schedule string) (replaced bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	lines := append(rest, MarkerBegin, Line(root, strings.TrimSpace(schedule)), MarkerEnd)
+	lines := append(rest, MarkerBegin, Line(root, strings.TrimSpace(schedule), factoryPath), MarkerEnd)
 	if err := c.Write(join(lines)); err != nil {
 		return false, fmt.Errorf("crontab を書き込めません: %w", err)
 	}
 	return len(blocks) > 0, nil
+}
+
+// --- tick run(多重起動ロック付きの実行入口)---
+
+// Exec は claude の起動(プロセス境界)。テストでは fake を注入する。
+type Exec interface {
+	// Run は dir をカレントディレクトリに name を起動し、終了コードを返す。
+	// error は起動自体の失敗(コマンドが無い等)のみ。
+	Run(dir, name string, args ...string) (int, error)
+}
+
+// SystemExec は実プロセスを起動する Exec 実装。
+type SystemExec struct {
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+// Run は Exec を満たす。
+func (s SystemExec) Run(dir, name string, args ...string) (int, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = s.Stdout
+	cmd.Stderr = s.Stderr
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), nil
+	}
+	if err != nil {
+		return 1, err
+	}
+	return 0, nil
+}
+
+// Run は多重起動ロックの下で claude -p <prompt> を 1 回起動し、
+// その終了コードを引き継ぐ。ロックが取得できない(他 tick が実行中)のは
+// **正常系**で、1 行出力して 0 を返す(cron からの重複起動をエラーにしない)。
+func Run(launcher Exec, root, prompt string, out io.Writer) (int, error) {
+	if strings.TrimSpace(prompt) == "" {
+		prompt = DefaultPrompt
+	}
+	lockPath := filepath.Join(root, filepath.FromSlash(LockFile(prompt)))
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return 1, fmt.Errorf("%s を作成できません: %w", filepath.Dir(lockPath), err)
+	}
+	release, busy, err := tryLock(lockPath)
+	if err != nil {
+		return 1, fmt.Errorf("ロック %s を取得できません: %w", LockFile(prompt), err)
+	}
+	if busy {
+		fmt.Fprintf(out, "==> 別の tick が実行中のためスキップします(%s。多重起動防止の正常系)\n", LockFile(prompt))
+		return 0, nil
+	}
+	defer release()
+
+	code, err := launcher.Run(root, "claude", "-p", prompt)
+	if err != nil {
+		return 1, fmt.Errorf("claude を起動できません: %w", err)
+	}
+	return code, nil
 }
 
 // Remove はマーカーブロックを除去する。ブロック外の行は変更しない。

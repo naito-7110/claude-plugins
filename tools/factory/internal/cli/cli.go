@@ -17,6 +17,7 @@ type Deps struct {
 	CurrentRepo   func() (string, error)
 	CurrentBranch func() (string, error) // カレントブランチ(unborn でも名前を返す)
 	Crontab       tick.Crontab
+	TickExec      tick.Exec // tick run の claude 起動(プロセス境界)
 	In            io.Reader // hook JSON の入力(gate)
 	Out           io.Writer
 	Err           io.Writer
@@ -72,11 +73,17 @@ const usage = `使い方: factory <board|issue|pr|docs|flags|mode|tick|gate|bran
                 (それ以外は理由を stderr に出して非ゼロ)
                 --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
   tick install  crontab に unattended 運転の起動行を設置する(既存ブロックは置換)
-                # factory-tick begin / end のマーカーブロックだけを操作し、他の行には触れない
+                # factory-tick begin / end のマーカーブロックだけを操作し、他の行には触れない。
+                生成行は factory tick run を呼ぶ(flock コマンドに依存しない)
                 --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
                 --schedule "<cron 式>" 起動スケジュール(既定: "0 3 * * 1-5" = 平日 3:00)
   tick remove   マーカーブロックを crontab から除去する(他の行には触れない)
   tick status   tick の設置有無と内容を表示する
+  tick run      多重起動ロック付きで claude -p <prompt> を 1 回起動する(cron の実行入口)
+                ロックは Go 実装(unix: flock(2) / windows: LockFileEx)。取得できなければ
+                他 tick が実行中の正常系として exit 0。claude の終了コードを引き継ぐ
+                --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
+                --prompt <p>           起動するスキル(既定: "/factory:night")
   branch cleanup  マージ済み agent ブランチ(agent/issue-*)を掃除する
                 PR 状態を正として判定(squash マージ運用のため --merged は使えない)。
                 merged / closed の PR に紐づくブランチだけを削除し、現在ブランチ・
@@ -118,7 +125,7 @@ func Run(args []string, deps Deps) int {
 		return runFlagsCheck(args[2:], deps)
 	case "mode status", "mode auto", "mode manual", "mode gate":
 		return runMode(args[1], args[2:], deps)
-	case "tick install", "tick remove", "tick status":
+	case "tick install", "tick remove", "tick status", "tick run":
 		return runTick(args[1], args[2:], deps)
 	case "branch cleanup":
 		return runBranchCleanup(args[2:], deps)
