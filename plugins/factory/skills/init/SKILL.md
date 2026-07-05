@@ -137,6 +137,11 @@ domains:
 
 **ドメインの定義・分割は init では行わない**。`domains: {}` の空マップを置くまでが init の仕事で、ドメインを切る意思決定と `docs/domains/` 雛形の生成は /factory:domains(専用スキル)が対話で行う(分割基準は domain-partitioning プリセット)。
 
+**issue / PR テンプレート(`.github/`)** — GitHub のテンプレート機構はリポジトリ内のファイルしか読まないため、プラグイン同梱のテンプレート(`${CLAUDE_PLUGIN_ROOT}/templates/`)を**コピーで設置**する:
+
+- `.github/ISSUE_TEMPLATE/template.md` と `.github/PULL_REQUEST_TEMPLATE.md`
+- 無ければコピーする。**既にある場合は差分を提示して上書き可否を人間に確認する**(黙って壊さない)。プラグイン更新への追随は init の再実行(同じ確認フロー)で行う
+
 **作業状態(`.agents/`)**:
 
 - `.agents/journal/` を作成(work のジャーナル置き場。`.gitkeep` を置く)
@@ -153,6 +158,7 @@ domains:
 | 憲法(CLAUDE.md マーカー節 + docs/adr/ 案内) | ✅ / 既存 ADR を尊重 |
 | CLAUDE.md スタック事実 | ✅ |
 | factory 運用ファイル(.factory: 地図 + 空の所有マップ) | ✅ / 既存を尊重 |
+| issue / PR テンプレート(.github) | ✅ / 既存は確認の上 |
 | `.agents/` | ✅ |
 
 残る手動作業(提示のみ。実行しない):
