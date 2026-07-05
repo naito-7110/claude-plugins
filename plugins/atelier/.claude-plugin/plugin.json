@@ -1,5 +1,5 @@
 {
   "name": "atelier",
   "description": "Human-attended dev atelier: ADR as constitution, GitHub issues/labels as durable state, humans gate spec/ADR/merge",
-  "version": "0.3.0"
+  "version": "1.0.0"
 }

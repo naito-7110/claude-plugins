@@ -1,11 +1,12 @@
 # Changelog
 
-## 0.3.0(2026-07-05)
+## 1.0.0(2026-07-05)
 
-**プラグインを factory から atelier へ改名**し、無人自律運転を撤去して「人間が常駐する工房」へ転換したリリース。
+**初のメジャーリリース**。プラグインを factory から atelier へ改名し、無人自律運転を撤去して「人間(親方)が常駐する工房」として再定義した。破壊的変更を含む。
 
 - **無人自律機構の撤去**(#122・**破壊的変更**): CLI から `tick` / `mode` サブコマンドが消滅。night / report スキルを削除。gate の無人 3 種(改憲ブロック・配車ゲート・merge:agent 付与ブロック)を撤去し、hook の matcher は `Bash` のみに縮小。残るゲートは main 直 push / push / マージ / リリースの 4 つ。orchestrate は人間常駐前提に単一化
 - **factory → atelier 改名**(#123): ディレクトリ・Go module・バイナリ名(`atelier`)・hook(`atelier-gate.sh`)・commit status(`atelier-review`)・required check(`atelier-issue-check`)・スキル名前空間(`/atelier:*`)・タグ規約(`atelier/vX.Y.Z`)・管理マーカー(`.atelier/`)。**旧名で設置済みのリポジトリは README の「旧 factory からの移行」に従うこと**(`.factory` のリネーム + init 再実行。放置するとゲートが働かない)
+- **リリースの引き金(release サブコマンド)を配布物から撤去**(#129・破壊的変更): AI とオーナーは gh 認証を共有しサーバー側で区別できないため、デプロイの便利コマンドをバイナリに含めない。タグ打ちは人間の生 git 手順(tools/atelier README)。gate は旧版バイナリ対策として起動検出を維持
 - 経緯の記録は naito-7110/claude-plugins#4(crontab 運用の実測破綻 → プラグインの責務境界の再定義 → 無人工場構想は別プロダクトへ)
 
 ## 0.2.2(2026-07-05)
