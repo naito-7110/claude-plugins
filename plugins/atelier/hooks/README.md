@@ -17,7 +17,7 @@
 | main 直 push / force push | 常にブロック(git-workflow) |
 | push ゲート | `agent/issue-<n>-*` ブランチの push 前に `atelier issue verify`(ラベルなしの実装は push 不可) |
 | マージゲート | `atelier pr verify` + Closes 紐づけ + 紐づく issue の `merge:agent` + CI green + **atelier-review status = success**(merge-policy の全実行条件) |
-| リリースゲート | `atelier release` の実行・タグ push(`--tags` / `refs/tags/` / `atelier/v*`)をブロック(`--dry-run` は許可)— デプロイは人間の tag push(merge-policy) |
+| リリースゲート | タグ push(`--tags` / `refs/tags/` / `atelier/v*`・旧名 `factory/v*`)と、残存する旧版バイナリのリリースコマンド起動をブロック — デプロイは人間の tag push(merge-policy) |
 
 ## 検証手順
 

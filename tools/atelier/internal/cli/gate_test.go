@@ -201,10 +201,14 @@ func TestGatePushOtherBranchPasses(t *testing.T) {
 // --- 5. リリースゲート(デプロイ = 人間の tag push)---
 
 func TestGateAtelierReleaseBlocked(t *testing.T) {
+	// release サブコマンドは #129 で撤去済みだが、旧版バイナリ(factory 名義
+	// 含む)が残存する環境への防御として起動検出は維持する。
 	for _, cmd := range []string{
 		"atelier release atelier/v0.3.0",
 		".agents/bin/atelier release v1.0.0",
 		"cd /repo && atelier release atelier/v0.3.0 --remote origin",
+		".agents/bin/factory release factory/v0.2.2", // 旧名バイナリの残存対策
+		"factory release factory/v0.2.2",
 	} {
 		result := executeGate(t, testServer(), "agent/issue-38-x", managedRoot(t), bashJSON(t, cmd))
 		assertBlocked(t, result, "リリースタグは人間の操作です")
@@ -228,6 +232,7 @@ func TestGateTagPushBlocked(t *testing.T) {
 		"git push origin --tags",
 		"git push origin refs/tags/atelier/v0.3.0",
 		"git push origin atelier/v0.3.0",
+		"git push origin factory/v0.2.2", // 旧名タグも塞ぐ
 	} {
 		result := executeGate(t, testServer(), "agent/issue-38-x", managedRoot(t), bashJSON(t, cmd))
 		assertBlocked(t, result, "タグの push は人間の操作です")
