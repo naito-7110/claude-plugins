@@ -48,16 +48,18 @@ orchestrate スキルを実行する。制動条件(人間レーン PR 滞留・
 
 **本質は cron ではない。** orchestrate は re-entrant(台帳 + GitHub の状態から毎回復元して 1 サイクルで終わる)なので、「常駐」と「定期起動」は外側の周期の違いでしかない。**1 つの常駐プロセスに寄せない理由**: プロセスが死んだ瞬間に工場が止まる(監視が要る)・コンテキストが伸び続ける。定期 tick なら死んでも次の tick で必ず蘇り、毎回フレッシュなコンテキストで動く。**リアルタイム性が欲しければ間隔を縮めればよい**。
 
-いずれの方式でも起動は `factory tick run` を使う。多重起動防止は tick run が内蔵する(Go 実装のロック。unix は flock(2)・Windows は LockFileEx — **flock コマンドは macOS に存在しない**ため OS コマンドに依存しない。二重起動時の後発は exit 0 の正常系):
+いずれの方式でも起動は `factory tick run` を使う。多重起動防止は tick run が内蔵する(Go 実装のロック。unix は flock(2)・Windows は LockFileEx — **flock コマンドは macOS に存在しない**ため OS コマンドに依存しない。二重起動時の後発は exit 0 の正常系)。さらに tick run は claude 起動前に**作業検知プリチェック**(Ready issue / 未対応レビュースレッド / factory-review failure / 未回収 merged PR — Go + gh API 3 クエリ)を行い、**作業が無ければ claude を一切立てない**(#111)。このため tick は短周期にしてよく、**推奨は 1 分周期の準リアルタイム構成**(イベントへの反応が体感 1〜2 分になる。空振りコストは API 3 クエリ + ログ 1 行のみ):
 
 ```bash
-# 方式 A: cron(最も堅い。夜だけ回す例 — factory tick install が生成する行と同形)
+# 方式 A: cron(最も堅い)— 推奨: 1 分周期の準リアルタイム
+* * * * * cd /path/to/repo && /path/to/factory tick run >> .agents/night.log 2>&1
+# 夜だけ回す例(factory tick install の既定と同形)
 0 3 * * 1-5 cd /path/to/repo && /path/to/factory tick run >> .agents/night.log 2>&1
 
-# 方式 B: 準リアルタイムの常駐風ラッパー(15 分間隔の tick。稼働時間帯は好みで)
+# 方式 B: 常駐風ラッパー(cron が使えない環境。sleep 60 で方式 A と同等)
 while true; do
   factory tick run >> .agents/night.log 2>&1 || true
-  sleep 900
+  sleep 60
 done
 ```
 

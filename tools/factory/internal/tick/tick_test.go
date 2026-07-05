@@ -258,7 +258,7 @@ func TestRunManualModeSkipsWithoutLaunching(t *testing.T) {
 	launcher := &stubExec{}
 	var out strings.Builder
 
-	code, err := tick.Run(launcher, root, "", &out)
+	code, err := tick.Run(launcher, tick.RunOptions{Root: root}, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestRunAutoModeLaunches(t *testing.T) {
 	root := autoRoot(t)
 	launcher := &stubExec{}
 
-	code, err := tick.Run(launcher, root, "", io.Discard)
+	code, err := tick.Run(launcher, tick.RunOptions{Root: root}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestRunPassesThroughExitCode(t *testing.T) {
 	root := autoRoot(t)
 	launcher := &stubExec{code: 7}
 
-	code, err := tick.Run(launcher, root, "", io.Discard)
+	code, err := tick.Run(launcher, tick.RunOptions{Root: root}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestRunSecondInstanceSkipsWithExitZero(t *testing.T) {
 	first := &blockingExec{started: make(chan struct{}), release: make(chan struct{}), code: 7}
 	done := make(chan int, 1)
 	go func() {
-		code, err := tick.Run(first, root, "", io.Discard)
+		code, err := tick.Run(first, tick.RunOptions{Root: root}, io.Discard)
 		if err != nil {
 			t.Error(err)
 		}
@@ -322,7 +322,7 @@ func TestRunSecondInstanceSkipsWithExitZero(t *testing.T) {
 
 	second := &stubExec{}
 	var out strings.Builder
-	code, err := tick.Run(second, root, "", &out)
+	code, err := tick.Run(second, tick.RunOptions{Root: root}, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,13 +348,13 @@ func TestRunPromptSelectsLockAndSkill(t *testing.T) {
 	night := &blockingExec{started: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan int, 1)
 	go func() {
-		code, _ := tick.Run(night, root, "", io.Discard)
+		code, _ := tick.Run(night, tick.RunOptions{Root: root}, io.Discard)
 		done <- code
 	}()
 	<-night.started
 
 	review := &stubExec{}
-	code, err := tick.Run(review, root, "/factory:review", io.Discard)
+	code, err := tick.Run(review, tick.RunOptions{Root: root, Prompt: "/factory:review"}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
