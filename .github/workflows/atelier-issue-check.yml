@@ -36,24 +36,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          bin=atelier
           tag=$(gh release list --repo naito-7110/claude-plugins \
             --json tagName --jq '[.[] | select(.tagName | startswith("atelier/v"))][0].tagName')
-          if [ -z "$tag" ]; then
-            # 移行期フォールバック(#123): 初回 atelier/v リリースが出るまでは
-            # 旧名 factory/v リリースのバイナリで検証する(検証ロジックは改名
-            # 前後で同一)。atelier/v の初回リリース後にこのブロックは削除できる
-            tag=$(gh release list --repo naito-7110/claude-plugins \
-              --json tagName --jq '[.[] | select(.tagName | startswith("factory/v"))][0].tagName')
-            bin=factory
-          fi
           test -n "$tag" || { echo "atelier のリリースが見つかりません"; exit 1; }
           gh release download "$tag" --repo naito-7110/claude-plugins \
             --pattern '*linux_amd64*' --pattern 'checksums.txt' --dir /tmp/atelier-bin
           cd /tmp/atelier-bin
           grep linux_amd64 checksums.txt | sha256sum --check -
           tar -xzf ./*linux_amd64*.tar.gz
-          install -m 0755 "$bin" /usr/local/bin/atelier
+          install -m 0755 atelier /usr/local/bin/atelier
 
       - name: Verify PR against linked issue
         env:
