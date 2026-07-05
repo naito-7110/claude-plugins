@@ -52,10 +52,22 @@ func bashJSON(t *testing.T, cmd string) string {
 	return hookJSON(t, "Bash", map[string]interface{}{"command": cmd})
 }
 
-// unattendedRoot は .agents/unattended を持つ root(無人モード)を作る。
-func unattendedRoot(t *testing.T) string {
+// managedRoot は factory 管理下の root(.factory/ あり)を作る。
+// ゲートは .factory/ の存在で管理下と判定するため(#103)、
+// ゲート規則のテストはすべてこの root を使う。
+func managedRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".factory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// unattendedRoot は .agents/unattended を持つ管理下 root(無人モード)を作る。
+func unattendedRoot(t *testing.T) string {
+	t.Helper()
+	root := managedRoot(t)
 	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -100,10 +112,44 @@ func assertAllowed(t *testing.T, result run) {
 	}
 }
 
+// --- 0. スコープ: factory 管理下(.factory/ の存在)だけをゲートする(#103)---
+
+func TestGateUnmanagedRepoAllowsEverything(t *testing.T) {
+	// プラグインはユーザーレベルで有効化され hook は全リポジトリで発火する。
+	// .factory/ の無いリポジトリでは、どのゲートも発動せず全ツールが素通しになる
+	// (管理外のリポジトリを fail-closed の人質にしない)。
+	unmanaged := t.TempDir() // .factory/ なし
+	for _, stdin := range []string{
+		bashJSON(t, "git push origin main"),                    // main 直 push
+		bashJSON(t, "git push --force origin main"),            // force push
+		bashJSON(t, "gh pr merge 64 --squash"),                 // マージ
+		bashJSON(t, "factory release factory/v0.3.0"),          // リリース
+		bashJSON(t, "git push --tags"),                         // タグ push
+		hookJSON(t, "Write", map[string]interface{}{"file_path": "docs/adr/x.md"}),
+	} {
+		result := executeGate(t, testServer(), "main", unmanaged, stdin)
+		assertAllowed(t, result)
+	}
+}
+
+func TestGateUnmanagedUnattendedStillAllowed(t *testing.T) {
+	// 無人 sentinel があっても管理外なら素通し(スコープ判定が先)。
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".agents", "unattended"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := executeGate(t, testServer(), "main", root,
+		hookJSON(t, "Write", map[string]interface{}{"file_path": "docs/adr/x.md"}))
+	assertAllowed(t, result)
+}
+
 // --- 1. main への直 push / force push(常時)---
 
 func TestGatePushToMainBlocked(t *testing.T) {
-	result := executeGate(t, testServer(), "agent/issue-38-x", t.TempDir(),
+	result := executeGate(t, testServer(), "agent/issue-38-x", managedRoot(t),
 		bashJSON(t, "git push origin main"))
 	assertBlocked(t, result, "main への直 push は禁止です")
 }
@@ -115,20 +161,20 @@ func TestGateForcePushToMainBlocked(t *testing.T) {
 		"git push --force-with-lease origin main",
 		"git push origin main --force", // フラグ後置の変形(迂回パターン)
 	} {
-		result := executeGate(t, testServer(), "agent/issue-38-x", t.TempDir(), bashJSON(t, cmd))
+		result := executeGate(t, testServer(), "agent/issue-38-x", managedRoot(t), bashJSON(t, cmd))
 		assertBlocked(t, result, "force push は禁止です")
 	}
 }
 
 func TestGateNonPushCommandPasses(t *testing.T) {
-	result := executeGate(t, testServer(), "main", t.TempDir(), bashJSON(t, "git status"))
+	result := executeGate(t, testServer(), "main", managedRoot(t), bashJSON(t, "git status"))
 	assertAllowed(t, result)
 }
 
 // --- 2. push ゲート: 作業ブランチの issue 状態 ---
 
 func TestGatePushFromMainBranchBlocked(t *testing.T) {
-	result := executeGate(t, testServer(), "main", t.TempDir(),
+	result := executeGate(t, testServer(), "main", managedRoot(t),
 		bashJSON(t, "git push origin feature-x"))
 	assertBlocked(t, result, "main ブランチからの push は禁止です")
 }
@@ -136,7 +182,7 @@ func TestGatePushFromMainBranchBlocked(t *testing.T) {
 func TestGatePushFromReadyIssueBranchPasses(t *testing.T) {
 	server := testServer()
 	readyIssue(server)
-	result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, "git push -u origin agent/issue-38-gate"))
 	assertAllowed(t, result)
 }
@@ -146,7 +192,7 @@ func TestGatePushFromNotReadyIssueBranchBlocked(t *testing.T) {
 	issue := readyIssue(server)
 	issue.Labels = nil // agent-ok なし
 
-	result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, "git push -u origin agent/issue-38-gate"))
 	assertBlocked(t, result, "issue #38 の状態が push 条件を満たしません")
 	if !strings.Contains(result.err, "agent-ok ラベルがありません") {
@@ -161,20 +207,20 @@ func TestGatePushUnbornIssueBranchStillGated(t *testing.T) {
 	issue := readyIssue(server)
 	issue.Labels = nil
 
-	result := executeGate(t, server, "agent/issue-38-fresh", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-fresh", managedRoot(t),
 		bashJSON(t, "git push -u origin agent/issue-38-fresh"))
 	assertBlocked(t, result, "issue #38 の状態が push 条件を満たしません")
 }
 
 func TestGateBranchUnresolvedPasses(t *testing.T) {
 	// ブランチが解決できない場合は bash 版と同じく素通し(ゲート対象外)。
-	result := executeGate(t, testServer(), "", t.TempDir(),
+	result := executeGate(t, testServer(), "", managedRoot(t),
 		bashJSON(t, "git push origin HEAD"))
 	assertAllowed(t, result)
 }
 
 func TestGatePushOtherBranchPasses(t *testing.T) {
-	result := executeGate(t, testServer(), "feature/x", t.TempDir(),
+	result := executeGate(t, testServer(), "feature/x", managedRoot(t),
 		bashJSON(t, "git push origin feature/x"))
 	assertAllowed(t, result)
 }
@@ -187,7 +233,7 @@ func TestGateFactoryReleaseBlocked(t *testing.T) {
 		".agents/bin/factory release v1.0.0",
 		"cd /repo && factory release factory/v0.3.0 --remote origin",
 	} {
-		result := executeGate(t, testServer(), "agent/issue-38-x", t.TempDir(), bashJSON(t, cmd))
+		result := executeGate(t, testServer(), "agent/issue-38-x", managedRoot(t), bashJSON(t, cmd))
 		assertBlocked(t, result, "リリースタグは人間の操作です")
 	}
 }
@@ -198,7 +244,7 @@ func TestGateFactoryReleaseDryRunPasses(t *testing.T) {
 		"factory release factory/v0.3.0 --dry-run",
 		"factory release --dry-run factory/v0.3.0",
 	} {
-		result := executeGate(t, testServer(), "agent/issue-38-x", t.TempDir(), bashJSON(t, cmd))
+		result := executeGate(t, testServer(), "agent/issue-38-x", managedRoot(t), bashJSON(t, cmd))
 		assertAllowed(t, result)
 	}
 }
@@ -210,7 +256,7 @@ func TestGateTagPushBlocked(t *testing.T) {
 		"git push origin refs/tags/factory/v0.3.0",
 		"git push origin factory/v0.3.0",
 	} {
-		result := executeGate(t, testServer(), "agent/issue-38-x", t.TempDir(), bashJSON(t, cmd))
+		result := executeGate(t, testServer(), "agent/issue-38-x", managedRoot(t), bashJSON(t, cmd))
 		assertBlocked(t, result, "タグの push は人間の操作です")
 	}
 }
@@ -224,7 +270,7 @@ func TestGateReleaseGateNoFalsePositives(t *testing.T) {
 		"echo factory released",                  // 単語の部分一致ではブロックしない
 		"gh release view factory/v0.1.0",         // gh release(閲覧)は対象外
 	} {
-		result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(), bashJSON(t, cmd))
+		result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t), bashJSON(t, cmd))
 		assertAllowed(t, result)
 	}
 }
@@ -234,7 +280,7 @@ func TestGateReleaseGateNoFalsePositives(t *testing.T) {
 func TestGateMergeAllGreenPasses(t *testing.T) {
 	server := testServer()
 	mergeReadyPR(server)
-	result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, "gh pr merge 64 --squash"))
 	assertAllowed(t, result)
 }
@@ -245,7 +291,7 @@ func TestGateMergeViaAPIGated(t *testing.T) {
 	pr := mergeReadyPR(server)
 	pr.ReviewState = "FAILURE"
 
-	result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, `gh api -X PUT "repos/naito-7110/claude-plugins/pulls/64/merge"`))
 	assertBlocked(t, result, "別コンテキストレビュア(factory-review)の green がありません")
 }
@@ -255,7 +301,7 @@ func TestGateMergePRVerifyNGBlocked(t *testing.T) {
 	pr := mergeReadyPR(server)
 	pr.Body = "## 概要\n\n関連 issue の記載なし\n"
 
-	result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, "gh pr merge 64 --squash"))
 	assertBlocked(t, result, "PR #64 は PR↔issue 整合を満たしません")
 	if !strings.Contains(result.err, "関連 issue が見つかりません") {
@@ -269,7 +315,7 @@ func TestGateMergeWithoutClosesLinkBlocked(t *testing.T) {
 	pr.Body = "## 概要\n\nRefs #38\n" // pr verify は通るが Closes 紐づけがない
 	pr.ClosingIssues = nil
 
-	result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, "gh pr merge 64 --squash"))
 	assertBlocked(t, result, "Closes での issue 紐づけがありません")
 }
@@ -281,7 +327,7 @@ func TestGateMergeWithoutMergeAgentBlocked(t *testing.T) {
 	issue.Labels = []string{"agent-ok"} // merge:agent なし
 	issue.LabelEvents = nil
 
-	result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, "gh pr merge 64 --squash"))
 	assertBlocked(t, result, "issue #38 に merge:agent がありません")
 }
@@ -292,7 +338,7 @@ func TestGateMergeCINotGreenBlocked(t *testing.T) {
 		pr := mergeReadyPR(server)
 		pr.ChecksState = state
 
-		result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+		result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 			bashJSON(t, "gh pr merge 64 --squash"))
 		assertBlocked(t, result, "CI が green ではありません")
 	}
@@ -304,7 +350,7 @@ func TestGateMergeReviewNotGreenBlocked(t *testing.T) {
 		pr := mergeReadyPR(server)
 		pr.ReviewState = state
 
-		result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+		result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 			bashJSON(t, "gh pr merge 64 --squash"))
 		assertBlocked(t, result, "別コンテキストレビュア(factory-review)の green がありません")
 	}
@@ -316,13 +362,13 @@ func TestGateMergeNumberFromCurrentBranch(t *testing.T) {
 	pr := mergeReadyPR(server)
 	pr.ReviewState = "FAILURE" // 解決された PR #64 がゲートされることで解決を実証する
 
-	result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(),
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, "gh pr merge --squash"))
 	assertBlocked(t, result, "PR #64 は別コンテキストレビュア")
 }
 
 func TestGateMergeNumberUnresolvedBlocked(t *testing.T) {
-	result := executeGate(t, testServer(), "feature/x", t.TempDir(),
+	result := executeGate(t, testServer(), "feature/x", managedRoot(t),
 		bashJSON(t, "gh pr merge --squash"))
 	assertBlocked(t, result, "マージ対象の PR 番号を特定できません")
 }
@@ -340,7 +386,7 @@ func TestGateUnattendedAdrWriteBlocked(t *testing.T) {
 
 func TestGateAttendedAdrWritePasses(t *testing.T) {
 	// 対話中は permission フローに任せる(hook はブロックしない)。
-	result := executeGate(t, testServer(), "main", t.TempDir(),
+	result := executeGate(t, testServer(), "main", managedRoot(t),
 		hookJSON(t, "Edit", map[string]interface{}{"file_path": "docs/adr/0001-x.md"}))
 	assertAllowed(t, result)
 }
@@ -379,7 +425,7 @@ func TestGateUnattendedTaskWithoutNumberBlocked(t *testing.T) {
 }
 
 func TestGateAttendedTaskPasses(t *testing.T) {
-	result := executeGate(t, testServer(), "main", t.TempDir(),
+	result := executeGate(t, testServer(), "main", managedRoot(t),
 		hookJSON(t, "Task", map[string]interface{}{"prompt": "適当に進めて"}))
 	assertAllowed(t, result)
 }
@@ -396,7 +442,7 @@ func TestGateUnattendedMergeAgentLabelBlocked(t *testing.T) {
 }
 
 func TestGateAttendedMergeAgentLabelPasses(t *testing.T) {
-	result := executeGate(t, testServer(), "main", t.TempDir(),
+	result := executeGate(t, testServer(), "main", managedRoot(t),
 		bashJSON(t, "gh issue edit 38 --add-label merge:agent"))
 	assertAllowed(t, result)
 }
@@ -404,20 +450,20 @@ func TestGateAttendedMergeAgentLabelPasses(t *testing.T) {
 // --- 入力の境界 ---
 
 func TestGateOtherToolPasses(t *testing.T) {
-	result := executeGate(t, testServer(), "main", t.TempDir(),
+	result := executeGate(t, testServer(), "main", managedRoot(t),
 		hookJSON(t, "Read", map[string]interface{}{"file_path": "docs/adr/0001.md"}))
 	assertAllowed(t, result)
 }
 
 func TestGateEmptyCommandPasses(t *testing.T) {
-	result := executeGate(t, testServer(), "main", t.TempDir(),
+	result := executeGate(t, testServer(), "main", managedRoot(t),
 		hookJSON(t, "Bash", map[string]interface{}{}))
 	assertAllowed(t, result)
 }
 
 func TestGateInvalidJSONIsErrorNotBlock(t *testing.T) {
 	// 壊れた入力は「実行失敗(exit 1)」であり、hook 契約のブロック(exit 2)ではない。
-	result := executeGate(t, testServer(), "main", t.TempDir(), "not json")
+	result := executeGate(t, testServer(), "main", managedRoot(t), "not json")
 	if result.code != cli.ExitError {
 		t.Fatalf("code = %d, want %d", result.code, cli.ExitError)
 	}

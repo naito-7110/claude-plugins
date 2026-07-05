@@ -38,6 +38,7 @@ func runGate(args []string, deps Deps) int {
 		NewClient:  func() (verify.GraphQL, error) { return deps.NewClient() },
 		Repo:       deps.CurrentRepo,
 		Branch:     deps.CurrentBranch,
+		Managed:    isManaged(*root),
 		Unattended: isUnattended(*root),
 		Err:        deps.Err,
 	})
@@ -56,4 +57,11 @@ func runGate(args []string, deps Deps) int {
 func isUnattended(root string) bool {
 	info, err := os.Stat(filepath.Join(root, ".agents", "unattended"))
 	return err == nil && !info.IsDir()
+}
+
+// isManaged は factory 管理下か(.factory/ ディレクトリの存在。
+// bash ラッパーの [ -d .factory ] と同一の判定 — #103)。
+func isManaged(root string) bool {
+	info, err := os.Stat(filepath.Join(root, ".factory"))
+	return err == nil && info.IsDir()
 }

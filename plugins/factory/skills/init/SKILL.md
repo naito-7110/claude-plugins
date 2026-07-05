@@ -120,7 +120,15 @@ CLAUDE.md が存在しなければ新規作成する。
 
 ### 6. 文書構造と `.agents/` の scaffold
 
-**factory 運用ファイル(`.factory/`)** — 配置の基準は「誰の持ち物か」(documentation プリセット): factory が生成し機械が読む運用ファイルは `.factory/`(dotdir、既存リポジトリの慣習と競合しない)、人間の一次文書(ADR・ドメイン知識)は標準の `docs/` に置く。無ければ作成する(既存は壊さない)。**`.factory/` はコミット対象**(gitignore しない):
+**factory バイナリ(`.agents/bin/`)— 必ず `.factory/` scaffold より先に取得する**:
+
+> **この順序は本質的な依存(#103)**: hook ゲートは「`.factory/` の存在 = factory 管理下」で発動し、管理下でバイナリが欠落していると fail-closed で全コマンドを止める。`.factory/` を先に作るとバイナリ取得コマンド自体がブロックされる鶏卵デッドロックになる。
+
+- Releases(タグ `factory/vX.Y.Z`)から OS / arch に合う factory バイナリを `gh release download` で取得し、checksums.txt を検証して `.agents/bin/factory` に置く(`.agents/` は gitignore 済み — バイナリをコミットしない)
+- リリースが未整備・取得不能な場合はスキップし、その旨を完了報告に載せる(hook ゲート・スキルの前提チェックはバイナリ無しでは縮退動作になる)
+- 万一デッドロックに入った場合(`.factory/` あり・バイナリなし)、ゲートの拒否メッセージに含まれるブートストラップ 1 行を**人間が `!` プレフィックスで直接実行**すれば復旧できる(`!` 実行は hook を通らない)
+
+**factory 運用ファイル(`.factory/`)** — 配置の基準は「誰の持ち物か」(documentation プリセット): factory が生成し機械が読む運用ファイルは `.factory/`(dotdir、既存リポジトリの慣習と競合しない)、人間の一次文書(ADR・ドメイン知識)は標準の `docs/` に置く。無ければ作成する(既存は壊さない)。**`.factory/` はコミット対象**(gitignore しない)。**`.factory/` を作った時点でこのリポジトリは hook ゲートの対象になる**(バイナリ取得を先に済ませていること):
 
 - `.factory/README.md`: 文書の地図。各層(プリセット + `docs/adr/` / `docs/domains/` / CLAUDE.md マーカー節 / `.factory/`)の場所と役割の案内
 - `.factory/ownership.yml`: 機械可読な所有マップ。`factory docs verify` が検証する:
@@ -148,11 +156,6 @@ domains:
 
 - `.agents/journal/` を作成(work のジャーナル置き場。`.gitkeep` を置く)
 - `.gitignore` に `.worktrees/` と `.agents/` がなければ追記する
-
-**factory バイナリ(`.agents/bin/`)**:
-
-- Releases(タグ `factory/vX.Y.Z`)から OS / arch に合う factory バイナリを `gh release download` で取得し、checksums.txt を検証して `.agents/bin/factory` に置く(`.agents/` は gitignore 済み — バイナリをコミットしない)
-- リリースが未整備・取得不能な場合はスキップし、その旨を完了報告に載せる(hook ゲート・スキルの前提チェックはバイナリ無しでは縮退動作になる)
 
 ### 6.4 後入れ認識 = 文書監査(既存コードがあるリポジトリのみ・対話)
 
