@@ -2,8 +2,10 @@
 //
 // GitHub Projects の正準ボード「factory board template」の複製・検証と、
 // issue / PR の整合検証(spec-alignment / merge-policy の機械検証可能な部分)、
-// 文書構造の検証(documentation プリセット: 地図・所有マップ・ドメイン文書)を行う。
-// 認証は gh CLI のセッションを継承する(go-gh)。docs verify はローカルで完結する。
+// 文書構造の検証(documentation プリセット: 地図・所有マップ・ドメイン文書)、
+// unattended 運転の制御(mode = 運転状態 / tick = crontab の起動機構)を行う。
+// 認証は gh CLI のセッションを継承する(go-gh)。docs verify / mode / tick は
+// ローカルで完結する。
 package main
 
 import (
@@ -15,6 +17,7 @@ import (
 
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/board"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/cli"
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/tick"
 )
 
 func main() {
@@ -33,8 +36,9 @@ func main() {
 			}
 			return repo.Owner + "/" + repo.Name, nil
 		},
-		Out: os.Stdout,
-		Err: os.Stderr,
+		Crontab: tick.System{},
+		Out:     os.Stdout,
+		Err:     os.Stderr,
 	}
 	os.Exit(cli.Run(os.Args[1:], deps))
 }
