@@ -64,6 +64,7 @@ work の完了報告を受けたら:
 - **エスカレーション(needs-human)** → 内容を確認し、対話中なら人間へ要約して引き継ぐ。無人時は issue コメントに残っていることを確認して台帳を escalated に更新
 - **レビュア不通過(factory-review = failure)の PR** → 指摘コメントを確認し、`merge:agent` を外して人間レーンへ再ラベリングする(merge-policy のフォールバック。指摘が軽微で work の再実行が妥当なら、修正タスクとして再配車してもよい — 新しい commit で status は未判定に戻り、再レビューが走る)
 - ラベル・Status・台帳の食い違いがあれば実態に同期する
+- サイクル末尾で `factory branch cleanup` を実行する(マージ済み agent ブランチ・worktree・追跡ブランチの掃除。PR 状態を正として判定するので squash マージでも安全)
 
 ## 5. 報告
 
