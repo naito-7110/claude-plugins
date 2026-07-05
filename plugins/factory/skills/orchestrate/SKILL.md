@@ -82,7 +82,7 @@ state: `dispatched` / `in-progress` / `pr-created` / `escalated` / `done`
 
 ## 運転制御(人間からの依頼)
 
-人間から unattended 運転の停止・再開・状態確認を頼まれたら、**`factory mode` / `factory tick` を実行して応える**(「今夜は止めて」→ `factory mode manual`、「今すぐ止めて」→ `factory mode pause`、「状態は?」→ `factory mode status`)。状態ファイルを直接触らない。
+人間から unattended 運転の停止・再開・状態確認・tick の設置と撤去を頼まれたら、**`factory mode` / `factory tick` を実行して応える**(「止めて」→ `factory mode manual`、「再開して」→ `factory mode auto`、「状態は?」→ `factory mode status`、「無人運転を設置して」→ `factory tick install`、「外して」→ `factory tick remove`)。状態ファイル・crontab を直接触らない。
 
 ## 禁止事項
 
