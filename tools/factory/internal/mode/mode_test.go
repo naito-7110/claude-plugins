@@ -25,9 +25,6 @@ func TestLoadMissingStateIsManual(t *testing.T) {
 	if state.Mode != mode.Manual {
 		t.Errorf("Mode = %q, want manual(fail-closed)", state.Mode)
 	}
-	if state.Paused {
-		t.Error("状態ファイルなしで paused になっている")
-	}
 	if !strings.Contains(state.Note, "既定 = manual") {
 		t.Errorf("Note = %q", state.Note)
 	}
@@ -76,33 +73,9 @@ func TestSetModeRejectsUnknownValue(t *testing.T) {
 	}
 }
 
-func TestPauseAndResume(t *testing.T) {
-	root := t.TempDir()
-	if err := mode.Pause(root); err != nil {
-		t.Fatal(err)
-	}
-	if !load(t, root).Paused {
-		t.Error("pause 後に Paused = false")
-	}
-	// 冪等: 二重 pause もエラーにしない。
-	if err := mode.Pause(root); err != nil {
-		t.Fatal(err)
-	}
-	if err := mode.Resume(root); err != nil {
-		t.Fatal(err)
-	}
-	if load(t, root).Paused {
-		t.Error("resume 後に Paused = true")
-	}
-	// 冪等: 停止していない状態の resume もエラーにしない。
-	if err := mode.Resume(root); err != nil {
-		t.Fatal(err)
-	}
-}
+// --- gate 判定(auto / manual の二値)---
 
-// --- gate 判定 ---
-
-func TestGateAllowsAutoUnpaused(t *testing.T) {
+func TestGateAllowsAuto(t *testing.T) {
 	ok, reason := mode.Gate(mode.State{Mode: mode.Auto})
 	if !ok || reason != "" {
 		t.Errorf("ok = %v, reason = %q", ok, reason)
@@ -119,16 +92,6 @@ func TestGateBlocksManual(t *testing.T) {
 	}
 }
 
-func TestGateBlocksPausedEvenInAuto(t *testing.T) {
-	ok, reason := mode.Gate(mode.State{Mode: mode.Auto, Paused: true})
-	if ok {
-		t.Fatal("paused で gate 通過")
-	}
-	if !strings.Contains(reason, "一時停止中です") {
-		t.Errorf("reason = %q", reason)
-	}
-}
-
 // --- 状態ファイルの配置(.agents/ 配下)---
 
 func TestStateFilesLiveUnderAgentsDir(t *testing.T) {
@@ -136,15 +99,10 @@ func TestStateFilesLiveUnderAgentsDir(t *testing.T) {
 	if err := mode.SetMode(root, mode.Auto); err != nil {
 		t.Fatal(err)
 	}
-	if err := mode.Pause(root); err != nil {
-		t.Fatal(err)
+	if !strings.HasPrefix(mode.ModeFile, mode.Dir+"/") {
+		t.Errorf("%s が %s/ 配下にない", mode.ModeFile, mode.Dir)
 	}
-	for _, rel := range []string{mode.ModeFile, mode.PauseFile} {
-		if !strings.HasPrefix(rel, mode.Dir+"/") {
-			t.Errorf("%s が %s/ 配下にない", rel, mode.Dir)
-		}
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
-			t.Errorf("%s が作成されていない: %v", rel, err)
-		}
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(mode.ModeFile))); err != nil {
+		t.Errorf("%s が作成されていない: %v", mode.ModeFile, err)
 	}
 }

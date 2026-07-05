@@ -26,8 +26,6 @@ const (
 	Dir = ".agents"
 	// ModeFile は運転モード(auto / manual)の状態ファイル。
 	ModeFile = ".agents/mode"
-	// PauseFile は一時停止のマーカーファイル(存在 = paused)。
-	PauseFile = ".agents/paused"
 )
 
 // 運転モードの値。
@@ -36,11 +34,11 @@ const (
 	Manual = "manual"
 )
 
-// State は現在の運転状態。
+// State は現在の運転状態。auto / manual の二値(PR #82 レビュー:
+// 状態機械は小さいほど事故が少ない。「今すぐ止める」も manual で即効)。
 type State struct {
-	Mode   string // Auto | Manual(fail-closed の正規化済み)
-	Paused bool
-	Note   string // Mode が既定値に落ちた理由(状態ファイル欠落・不正内容)。空なら明示設定
+	Mode string // Auto | Manual(fail-closed の正規化済み)
+	Note string // Mode が既定値に落ちた理由(状態ファイル欠落・不正内容)。空なら明示設定
 }
 
 // Load は root(リポジトリのルート)の運転状態を読む。
@@ -71,10 +69,6 @@ func Load(root string) (State, error) {
 				ModeFile, content)
 		}
 	}
-
-	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(PauseFile))); err == nil {
-		state.Paused = true
-	}
 	return state, nil
 }
 
@@ -93,33 +87,10 @@ func SetMode(root, value string) error {
 	return nil
 }
 
-// Pause は一時停止マーカーを作成する(既に停止中なら何もしない)。
-func Pause(root string) error {
-	p := filepath.Join(root, filepath.FromSlash(PauseFile))
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return fmt.Errorf("%s を作成できません: %w", Dir, err)
-	}
-	if err := os.WriteFile(p, []byte("paused\n"), 0o644); err != nil {
-		return fmt.Errorf("%s を書き込めません: %w", PauseFile, err)
-	}
-	return nil
-}
-
-// Resume は一時停止マーカーを除去する(停止していなければ何もしない)。
-func Resume(root string) error {
-	err := os.Remove(filepath.Join(root, filepath.FromSlash(PauseFile)))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("%s を除去できません: %w", PauseFile, err)
-	}
-	return nil
-}
-
-// Gate は無人起動口(night)の判定。auto かつ非 pause のときだけ ok = true。
+// Gate は無人起動口(night)の判定。auto のときだけ ok = true。
 // ok = false のとき reason に人間可読の理由(と復帰手順)が入る。
+// 「今すぐ止める」も factory mode manual で即効する(状態はローカルなので反映は即時)。
 func Gate(state State) (ok bool, reason string) {
-	if state.Paused {
-		return false, fmt.Sprintf("一時停止中です(%s)。factory mode resume で再開してください", PauseFile)
-	}
 	if state.Mode != Auto {
 		reason := "運転モードが manual です。unattended 運転を許可するには factory mode auto を実行してください"
 		if state.Note != "" {

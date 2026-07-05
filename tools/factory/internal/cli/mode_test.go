@@ -42,7 +42,7 @@ func TestModeGateDefaultIsManualAndBlocks(t *testing.T) {
 }
 
 func TestModeFullTransition(t *testing.T) {
-	// manual(既定)→ auto → pause → resume → manual の全遷移と gate の対応。
+	// manual(既定)→ auto → manual の全遷移と gate の対応(二値の状態機械)。
 	root := t.TempDir()
 	cron := &cronfake.Crontab{}
 	gate := func() run { return executeCron(t, cron, "mode", "gate", "--root", root) }
@@ -58,29 +58,26 @@ func TestModeFullTransition(t *testing.T) {
 		t.Fatalf("auto で gate = %d, want 0 (err=%q)", result.code, result.err)
 	}
 
-	if result := executeCron(t, cron, "mode", "pause", "--root", root); result.code != cli.ExitOK {
-		t.Fatalf("mode pause: code = %d", result.code)
-	}
-	result := gate()
-	if result.code != cli.ExitError {
-		t.Fatalf("paused で gate = %d, want 1", result.code)
-	}
-	if !strings.Contains(result.err, "一時停止中です") {
-		t.Errorf("理由が stderr に出ない: %q", result.err)
-	}
-
-	if result := executeCron(t, cron, "mode", "resume", "--root", root); result.code != cli.ExitOK {
-		t.Fatalf("mode resume: code = %d", result.code)
-	}
-	if result := gate(); result.code != cli.ExitOK {
-		t.Fatalf("resume 後の gate = %d, want 0", result.code)
-	}
-
+	// 「今すぐ止める」= manual(状態はローカルなので即効)。
 	if result := executeCron(t, cron, "mode", "manual", "--root", root); result.code != cli.ExitOK {
 		t.Fatalf("mode manual: code = %d", result.code)
 	}
-	if result := gate(); result.code != cli.ExitError {
+	result := gate()
+	if result.code != cli.ExitError {
 		t.Fatalf("manual に戻した後の gate = %d, want 1", result.code)
+	}
+	if !strings.Contains(result.err, "運転モードが manual です") {
+		t.Errorf("理由が stderr に出ない: %q", result.err)
+	}
+}
+
+func TestModePauseIsRemoved(t *testing.T) {
+	// pause / resume は廃止(PR #82 レビュー: 二値に簡素化)。usage を出して終了する。
+	for _, verb := range []string{"pause", "resume"} {
+		result := executeCron(t, &cronfake.Crontab{}, "mode", verb)
+		if result.code != cli.ExitUsage {
+			t.Errorf("mode %s: code = %d, want %d(廃止済み)", verb, result.code, cli.ExitUsage)
+		}
 	}
 }
 
@@ -102,7 +99,6 @@ func TestModeStatusShowsStateAndTick(t *testing.T) {
 	}
 	for _, want := range []string{
 		"運転モード: auto",
-		"一時停止: なし",
 		"tick: 設置済み",
 		"gate: 通過",
 	} {

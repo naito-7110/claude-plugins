@@ -31,20 +31,6 @@ func runMode(verb string, args []string, deps Deps) int {
 			fmt.Fprintf(deps.Out, "==> 運転モードを manual にしました(%s)。無人運転は行われません\n", mode.ModeFile)
 		}
 		return ExitOK
-	case "pause":
-		if err := mode.Pause(*root); err != nil {
-			fmt.Fprintln(deps.Err, err)
-			return ExitError
-		}
-		fmt.Fprintf(deps.Out, "==> 一時停止しました(%s)。factory mode resume で再開します\n", mode.PauseFile)
-		return ExitOK
-	case "resume":
-		if err := mode.Resume(*root); err != nil {
-			fmt.Fprintln(deps.Err, err)
-			return ExitError
-		}
-		fmt.Fprintln(deps.Out, "==> 一時停止を解除しました(運転モードに従います)")
-		return ExitOK
 	case "status":
 		return runModeStatus(*root, deps)
 	case "gate":
@@ -66,11 +52,6 @@ func runModeStatus(root string, deps Deps) int {
 		fmt.Fprintf(deps.Out, "運転モード: %s(%s)\n", state.Mode, state.Note)
 	} else {
 		fmt.Fprintf(deps.Out, "運転モード: %s\n", state.Mode)
-	}
-	if state.Paused {
-		fmt.Fprintf(deps.Out, "一時停止: 中(%s。factory mode resume で再開)\n", mode.PauseFile)
-	} else {
-		fmt.Fprintln(deps.Out, "一時停止: なし")
 	}
 	printTickState(deps)
 	if ok, _ := mode.Gate(state); ok {
@@ -99,7 +80,7 @@ func printTickState(deps Deps) {
 	}
 }
 
-// runModeGate は night が使う判定入口。auto かつ非 pause のときだけ exit 0。
+// runModeGate は night が使う判定入口。auto のときだけ exit 0。
 // 遮断の理由は stderr に出す(cron ログで拾える)。
 func runModeGate(root string, deps Deps) int {
 	state, err := mode.Load(root)
@@ -112,6 +93,6 @@ func runModeGate(root string, deps Deps) int {
 		fmt.Fprintf(deps.Err, "NG: %s\n", reason)
 		return ExitError
 	}
-	fmt.Fprintln(deps.Out, "OK: 運転モード auto・一時停止なし(gate 通過)")
+	fmt.Fprintln(deps.Out, "OK: 運転モード auto(gate 通過)")
 	return ExitOK
 }
