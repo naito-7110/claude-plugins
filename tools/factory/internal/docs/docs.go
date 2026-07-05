@@ -11,15 +11,19 @@
 //   - 地図の存在: Layout.MapReadme(無ければ /factory:init を案内)
 //   - 所有マップの形式: Layout.OwnershipFile が domains.<name>.paths: [glob]
 //     に適合すること。domains: {}(ドメイン未分割)は正常(漸進導入)
-//   - 必須構造: 宣言された各ドメインの Layout.DomainDocs(README.md と contracts.md)
+//   - 必須構造: 宣言された各ドメインの Layout.DomainDocs(README.md と contracts.md)。
+//     逆方向も検査し、宣言されていない DomainsDir 直下のディレクトリ(孤児)は NG
 //   - マップと実パスの整合: glob が実在ファイルに 1 件もマッチしない宣言は NG
-//     (死んだ宣言)。どのドメインにも属さない追跡対象ファイルは警告のみ
-//     (exit code に影響させない。所有の宣言は 1 ドメインから漸進導入できるため)
+//     (死んだ宣言)。複数ドメインに所有されるファイルと、どのドメインにも属さない
+//     追跡対象ファイルは警告のみ(exit code に影響させない。所有の宣言は
+//     1 ドメインから漸進導入できるため)
 //
 // ファイル列挙は git ls-files(untracked 含む・gitignore 除外)を優先する。
 // git リポジトリでない場合はファイルシステム走査(dot ディレクトリ除外)に
-// フォールバックする。glob の ** は 0 個以上のパスセグメントに一致する
-// (依存最小のため doublestar 等は足さず自前で展開する)。
+// フォールバックする。gitignore された生成物への所有宣言が死んだ宣言 NG に
+// なるのは仕様である(documentation プリセット: 所有マップは git 追跡対象のみを
+// 対象とする)。glob の ** は 0 個以上のパスセグメントに一致し、パターン前後の
+// / は無視する(依存最小のため doublestar 等は足さず自前で展開する)。
 package docs
 
 import (
@@ -32,6 +36,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -78,7 +83,17 @@ var DefaultLayout = Layout{
 }
 
 // initGuidance は scaffold 欠落時の案内(init が生成する)。
-const initGuidance = "/factory:init を実行して文書の地図を生成してください"
+// サブディレクトリで実行しただけのケースも多いため、root の確認も促す
+// (実際は root 違いなのに init を案内すると無駄な init 実行を誘発する)。
+const initGuidance = "/factory:init を実行して文書の地図を生成してください。" +
+	"リポジトリのルートで実行しているかも確認してください"
+
+// domainNamePattern はドメイン名の制約(小文字スネークケース)。
+// ドメイン名は Layout.DomainsDir のディレクトリ名になるため、大文字を許すと
+// macOS(大文字小文字を区別しない FS)ではローカル green・Linux CI では red の
+// 環境差事故が起きる。仕様側でこの環境差を消すため小文字のみに制約し、
+// db-design プリセットの命名既定(snake_case)とも整合させる。
+var domainNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // coverageExamples は所有されないファイルの警告に載せる例の上限。
 const coverageExamples = 5
@@ -147,26 +162,29 @@ func Verify(root string) (Report, error) {
 	if !ok {
 		return report, nil
 	}
-	if len(domains) == 0 {
-		report.add(CheckOwnership, verify.LevelOK,
-			"%s は正常(ドメイン未分割: domains: {}。漸進導入のため正常)", layout.OwnershipFile)
-		return report, nil
-	}
 	names := make([]string, 0, len(domains))
 	for name := range domains {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	report.add(CheckOwnership, verify.LevelOK,
-		"%s は正常(ドメイン %d 件: %s)", layout.OwnershipFile, len(names), strings.Join(names, ", "))
+	if len(names) == 0 {
+		report.add(CheckOwnership, verify.LevelOK,
+			"%s は正常(ドメイン未分割: domains: {}。漸進導入のため正常)", layout.OwnershipFile)
+	} else {
+		report.add(CheckOwnership, verify.LevelOK,
+			"%s は正常(ドメイン %d 件: %s)", layout.OwnershipFile, len(names), strings.Join(names, ", "))
+	}
 
 	checkStructure(&report, root, layout, names)
+	checkOrphans(&report, root, layout, domains)
 
-	files, err := listTrackedFiles(root)
-	if err != nil {
-		return Report{}, fmt.Errorf("ファイル一覧を取得できません: %w", err)
+	if len(names) > 0 {
+		files, err := listTrackedFiles(root)
+		if err != nil {
+			return Report{}, fmt.Errorf("ファイル一覧を取得できません: %w", err)
+		}
+		checkPaths(&report, layout, domains, names, files)
 	}
-	checkPaths(&report, layout, domains, names, files)
 	return report, nil
 }
 
@@ -202,9 +220,9 @@ func loadOwnership(report *Report, root string, layout Layout) (map[string]domai
 
 	valid := true
 	for name, decl := range doc.Domains {
-		if name == "" || name != path.Clean(name) || strings.ContainsAny(name, "/\\") {
+		if !domainNamePattern.MatchString(name) {
 			report.add(CheckOwnership, verify.LevelNG,
-				"ドメイン名 %q が不正です(%s/ のディレクトリ名になるため、パス区切りを含められません)",
+				"ドメイン名 %q が不正です(小文字スネークケース ^[a-z][a-z0-9_]*$ のみ。%s/ のディレクトリ名になるため、大小文字を区別しない FS との環境差を仕様側で防ぎます)",
 				name, layout.DomainsDir)
 			valid = false
 			continue
@@ -244,18 +262,50 @@ func checkStructure(report *Report, root string, layout Layout, names []string) 
 	}
 }
 
+// checkOrphans は Layout.DomainsDir 直下のディレクトリのうち、所有マップに
+// 宣言されていないもの(孤児ドメイン文書)を NG にする。文書と地図の乖離検出は
+// 本ツールの主目的であり、宣言 → 文書(checkStructure)だけでなく
+// 文書 → 宣言の逆方向も検査する。
+func checkOrphans(report *Report, root string, layout Layout, domains map[string]domainDecl) {
+	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(layout.DomainsDir)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return // ドメイン文書がまだ無いのは正常(漸進導入)
+	}
+	if err != nil {
+		report.add(CheckStructure, verify.LevelNG, "%s を読めません: %v", layout.DomainsDir, err)
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() || strings.HasPrefix(name, ".") {
+			continue
+		}
+		if _, declared := domains[name]; !declared {
+			report.add(CheckStructure, verify.LevelNG,
+				"%s が所有マップに宣言されていません(%s に追加するか、ディレクトリを整理してください)",
+				path.Join(layout.DomainsDir, name), layout.OwnershipFile)
+		}
+	}
+}
+
 // checkPaths は所有マップと実パスの整合を検査する。
 //   - 実在ファイルに 1 件もマッチしないパターン → NG(死んだ宣言)
+//   - 同一ファイルが複数ドメインに所有されている → 警告のみ
 //   - どのドメインにも属さない追跡対象のソースファイル → 警告のみ(漸進導入)
 func checkPaths(report *Report, layout Layout, domains map[string]domainDecl, names []string, files []string) {
-	owned := make([]bool, len(files))
+	// owners[i] は files[i] を所有するドメイン名(names 順で重複なし)。
+	owners := make([][]string, len(files))
 	for _, name := range names {
+		ownedByThis := make([]bool, len(files))
 		for _, pattern := range domains[name].Paths {
 			matched := 0
 			for i, file := range files {
 				if matchPattern(pattern, file) {
-					owned[i] = true
 					matched++
+					if !ownedByThis[i] {
+						ownedByThis[i] = true
+						owners[i] = append(owners[i], name)
+					}
 				}
 			}
 			if matched == 0 {
@@ -269,9 +319,24 @@ func checkPaths(report *Report, layout Layout, domains map[string]domainDecl, na
 		}
 	}
 
+	// 重複所有の検出。domain-partitioning の「1 パス 1 ドメイン(所有の排他性)」
+	// に反するが、プリセット(#65)確定後に NG へ昇格する予定のため、まず警告に留める。
+	var duplicated []string
+	for i, file := range files {
+		if len(owners[i]) > 1 {
+			duplicated = append(duplicated, fmt.Sprintf("%s(%s)", file, strings.Join(owners[i], ", ")))
+		}
+	}
+	if len(duplicated) > 0 {
+		examples, suffix := truncateExamples(duplicated)
+		report.add(CheckPaths, verify.LevelWarn,
+			"複数ドメインに所有されているファイルが %d 件あります(例: %s%s)。所有は 1 パス 1 ドメインが原則です(現状は警告のみ)",
+			len(duplicated), strings.Join(examples, ", "), suffix)
+	}
+
 	var unowned []string
 	for i, file := range files {
-		if !owned[i] && isSourceFile(layout, file) {
+		if len(owners[i]) == 0 && isSourceFile(layout, file) {
 			unowned = append(unowned, file)
 		}
 	}
@@ -279,15 +344,18 @@ func checkPaths(report *Report, layout Layout, domains map[string]domainDecl, na
 		report.add(CheckPaths, verify.LevelOK, "すべての追跡対象ソースファイルがいずれかのドメインに属しています")
 		return
 	}
-	examples := unowned
-	suffix := ""
-	if len(examples) > coverageExamples {
-		examples = examples[:coverageExamples]
-		suffix = " ..."
-	}
+	examples, suffix := truncateExamples(unowned)
 	report.add(CheckPaths, verify.LevelWarn,
 		"どのドメインにも属さないファイルが %d 件あります(例: %s%s)。所有マップへの追加を検討してください(漸進導入のため警告のみ)",
 		len(unowned), strings.Join(examples, ", "), suffix)
+}
+
+// truncateExamples は警告に載せる例を coverageExamples 件に丸める。
+func truncateExamples(items []string) (examples []string, suffix string) {
+	if len(items) > coverageExamples {
+		return items[:coverageExamples], " ..."
+	}
+	return items, ""
 }
 
 // isSourceFile は所有カバレッジの警告対象かを判定する。
@@ -295,6 +363,12 @@ func checkPaths(report *Report, layout Layout, domains map[string]domainDecl, na
 // 所有マップの対象外とする。
 func isSourceFile(layout Layout, file string) bool {
 	if strings.HasSuffix(file, ".md") {
+		return false
+	}
+	// ルート直下(深さ 1)のファイルも対象外: Makefile・flake.nix・go.mod 等の
+	// ビルド/インフラ系はドメインに属さないのが自然で、恒常警告になると
+	// 警告自体が無視される(行動可能なアラートだけを出す)。
+	if !strings.Contains(file, "/") {
 		return false
 	}
 	for _, segment := range strings.Split(file, "/") {

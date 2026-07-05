@@ -102,6 +102,10 @@ func TestDocsVerifyMissingMapFails(t *testing.T) {
 	if !strings.Contains(result.out, "/factory:init を実行") {
 		t.Errorf("init の案内が出力されない: %q", result.out)
 	}
+	// サブディレクトリで実行しただけのケースへの誤誘導を防ぐ案内。
+	if !strings.Contains(result.out, "リポジトリのルートで実行しているか") {
+		t.Errorf("root 確認の案内が出力されない: %q", result.out)
+	}
 }
 
 // --- 所有マップの形式 ---
@@ -177,6 +181,25 @@ func TestDocsVerifyEmptyPathsFails(t *testing.T) {
 	}
 }
 
+func TestDocsVerifyUppercaseDomainNameFails(t *testing.T) {
+	// 大文字を含むドメイン名は NG(大小文字を区別しない FS では
+	// ローカル green・Linux CI red の環境差事故になるため、仕様側で消す)。
+	root := scaffoldDocs(t)
+	writeFile(t, root, layout.OwnershipFile, `domains:
+  API:
+    paths:
+      - "src/api/**"
+`)
+
+	result := executeDocs(t, root)
+	if result.code != cli.ExitError {
+		t.Fatalf("code = %d, want %d (out=%q)", result.code, cli.ExitError, result.out)
+	}
+	if !strings.Contains(result.out, "小文字スネークケース") {
+		t.Errorf("理由が出力されない: %q", result.out)
+	}
+}
+
 // --- 必須構造(ドメイン文書)---
 
 func TestDocsVerifyMissingContractsFails(t *testing.T) {
@@ -201,6 +224,36 @@ func TestDocsVerifyMissingDomainReadmeFails(t *testing.T) {
 		t.Fatalf("code = %d, want %d", result.code, cli.ExitError)
 	}
 	if !strings.Contains(result.out, layout.DomainDoc("api", "README.md")+" がありません") {
+		t.Errorf("理由が出力されない: %q", result.out)
+	}
+}
+
+func TestDocsVerifyOrphanDomainDirFails(t *testing.T) {
+	// 宣言されていないドメイン文書ディレクトリ(孤児)は NG(文書 → 宣言の逆方向検査)。
+	root := scaffoldDocs(t)
+	writeFile(t, root, layout.DomainDoc("ghost", "README.md"), "# ghost\n")
+
+	result := executeDocs(t, root)
+	if result.code != cli.ExitError {
+		t.Fatalf("code = %d, want %d (out=%q)", result.code, cli.ExitError, result.out)
+	}
+	if !strings.Contains(result.out, layout.DomainsDir+"/ghost が所有マップに宣言されていません") {
+		t.Errorf("理由が出力されない: %q", result.out)
+	}
+}
+
+func TestDocsVerifyOrphanWithEmptyDomainsFails(t *testing.T) {
+	// domains: {} でもドメイン文書ディレクトリがあれば孤児として NG。
+	root := t.TempDir()
+	writeFile(t, root, layout.MapReadme, "# 文書の地図\n")
+	writeFile(t, root, layout.OwnershipFile, "domains: {}\n")
+	writeFile(t, root, layout.DomainDoc("ghost", "README.md"), "# ghost\n")
+
+	result := executeDocs(t, root)
+	if result.code != cli.ExitError {
+		t.Fatalf("code = %d, want %d (out=%q)", result.code, cli.ExitError, result.out)
+	}
+	if !strings.Contains(result.out, layout.DomainsDir+"/ghost が所有マップに宣言されていません") {
 		t.Errorf("理由が出力されない: %q", result.out)
 	}
 }
@@ -240,6 +293,48 @@ func TestDocsVerifyUnownedFileWarnsButPasses(t *testing.T) {
 	}
 	if !strings.Contains(result.out, "==> 結果: OK") {
 		t.Errorf("警告のみで NG になっている: %q", result.out)
+	}
+}
+
+func TestDocsVerifyDuplicateOwnershipWarnsButPasses(t *testing.T) {
+	// 同一ファイルの複数ドメイン所有は警告のみ(#65 のプリセット確定後に NG 昇格予定)。
+	root := scaffoldDocs(t)
+	writeFile(t, root, layout.OwnershipFile, `domains:
+  api:
+    paths:
+      - "src/api/**"
+  web:
+    paths:
+      - "src/api/**"
+`)
+	writeFile(t, root, layout.DomainDoc("web", "README.md"), "# web\n")
+	writeFile(t, root, layout.DomainDoc("web", "contracts.md"), "# 公開契約\n")
+
+	result := executeDocs(t, root)
+	if result.code != cli.ExitOK {
+		t.Fatalf("code = %d, want %d (out=%q)", result.code, cli.ExitOK, result.out)
+	}
+	if !strings.Contains(result.out, "複数ドメインに所有されているファイルが 1 件あります") {
+		t.Errorf("警告が出力されない: %q", result.out)
+	}
+	if !strings.Contains(result.out, "src/api/main.go(api, web)") {
+		t.Errorf("所有ドメインの内訳が出力されない: %q", result.out)
+	}
+}
+
+func TestDocsVerifyRootLevelFilesNotWarned(t *testing.T) {
+	// ルート直下のビルド/インフラ系ファイル(Makefile 等)は恒常警告になる
+	// (狼少年化する)ため、所有カバレッジの警告対象外。
+	root := scaffoldDocs(t)
+	writeFile(t, root, "Makefile", "all:\n")
+	writeFile(t, root, "flake.nix", "{}\n")
+
+	result := executeDocs(t, root)
+	if result.code != cli.ExitOK {
+		t.Fatalf("code = %d, want %d (out=%q)", result.code, cli.ExitOK, result.out)
+	}
+	if strings.Contains(result.out, "警告") {
+		t.Errorf("ルート直下ファイルで警告が出ている: %q", result.out)
 	}
 }
 
