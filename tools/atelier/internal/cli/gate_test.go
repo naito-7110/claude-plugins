@@ -146,10 +146,22 @@ func TestGateNonPushCommandPasses(t *testing.T) {
 
 // --- 2. push ゲート: 作業ブランチの issue 状態 ---
 
-func TestGatePushFromMainBranchBlocked(t *testing.T) {
+// #119 の仕様変更: push ゲートは「push 元のカレントブランチ」ではなく
+// 「push が実際に触る refspec(宛先 / push 元)」で判定する。カレントが main でも、
+// 明示的に別ブランチを push するなら main を変えないので通す(worktree で main を
+// checkout したルートから agent ブランチを push する正規の操作を塞がないため)。
+func TestGatePushFromMainWithExplicitBranchPasses(t *testing.T) {
 	result := executeGate(t, testServer(), "main", managedRoot(t),
 		bashJSON(t, "git push origin feature-x"))
-	assertBlocked(t, result, "main ブランチからの push は禁止です")
+	assertAllowed(t, result)
+}
+
+// ただし refspec 無しの `git push`(カレント main を暗黙に push)は宛先が main と
+// 解釈され、直 push ゲートで止まる(防御の核心は維持)。
+func TestGateBarePushFromMainBlocked(t *testing.T) {
+	result := executeGate(t, testServer(), "main", managedRoot(t),
+		bashJSON(t, "git push"))
+	assertBlocked(t, result, "main への直 push は禁止です")
 }
 
 func TestGatePushFromReadyIssueBranchPasses(t *testing.T) {
@@ -189,6 +201,126 @@ func TestGateBranchUnresolvedPasses(t *testing.T) {
 	// ブランチが解決できない場合は bash 版と同じく素通し(ゲート対象外)。
 	result := executeGate(t, testServer(), "", managedRoot(t),
 		bashJSON(t, "git push origin HEAD"))
+	assertAllowed(t, result)
+}
+
+// --- #119: 文字列部分一致の誤爆が構文判定で解消されることの回帰テスト ---
+
+// コミットメッセージ・引数に push / main / release / タグの語が入っても、
+// 実コマンドが該当操作でなければ誤爆しない(トークン化で語とコマンドを区別)。
+func TestGateNoFalsePositiveOnQuotedWords(t *testing.T) {
+	server := testServer()
+	readyIssue(server)
+	for _, cmd := range []string{
+		`git commit -m "covers push/merge/release; and && more"`,       // メッセージ内の語
+		`git commit -m "main への直 push は禁止"`,                       // メッセージ内の main + push
+		`gh issue create --title "atelier/v1.0.0 のタグを push する話"`, // 引用符内のタグ + push
+		`echo "git push origin main"`,                                   // echo の引数
+	} {
+		result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t), bashJSON(t, cmd))
+		assertAllowed(t, result)
+	}
+}
+
+// 連結コマンドの引数が混ざっても、セグメント分割で別コマンドとして判定する。
+// 原本の誤爆: rebase の `origin/main` と push の `--force-with-lease` が同居して
+// 「main への force push」と誤判定された(dogfoodry#7)。
+func TestGateNoFalsePositiveOnChainedCommands(t *testing.T) {
+	server := testServer()
+	readyIssue(server)
+	for _, cmd := range []string{
+		"git rebase --onto origin/main x && git push --force-with-lease origin agent/issue-38-gate",
+		"git fetch origin main && git push -u origin agent/issue-38-gate", // fetch の main と push が同居
+	} {
+		result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t), bashJSON(t, cmd))
+		assertAllowed(t, result)
+	}
+}
+
+// 連結内に本物の禁止操作があれば、そのセグメントで捕捉する(すり抜けさせない)。
+func TestGateChainedCommandStillCatchesRealPush(t *testing.T) {
+	result := executeGate(t, testServer(), "agent/issue-38-gate", managedRoot(t),
+		bashJSON(t, "git add -A && git push origin main"))
+	assertBlocked(t, result, "main への直 push は禁止です")
+}
+
+// 引用符付きタグ名でもリリースゲートに掛かる(旧実装のすり抜け穴)。
+func TestGateQuotedTagPushBlocked(t *testing.T) {
+	result := executeGate(t, testServer(), "agent/issue-38-gate", managedRoot(t),
+		bashJSON(t, "git push origin 'atelier/v1.0.0'"))
+	assertBlocked(t, result, "タグの push は人間の操作です")
+}
+
+// セミコロン直後に空白が無い連結でもセグメント分割される(旧実装のすり抜け穴)。
+func TestGateNoSpaceSeparatorStillCatchesRelease(t *testing.T) {
+	result := executeGate(t, testServer(), "agent/issue-38-gate", managedRoot(t),
+		bashJSON(t, "echo start;atelier release atelier/v1.0.0"))
+	assertBlocked(t, result, "リリースタグは人間の操作です")
+}
+
+// worktree からの明示 refspec push は、ルートのカレントブランチに依らず
+// refspec(宛先)で判定する(#119 証拠 2: ルート main で agent push が誤爆した)。
+func TestGateWorktreePushJudgedByRefspec(t *testing.T) {
+	server := testServer()
+	readyIssue(server)
+	// ルートは main を checkout しているが、push するのは agent ブランチ。
+	result := executeGate(t, server, "main", managedRoot(t),
+		bashJSON(t, "git push -u origin agent/issue-38-gate"))
+	assertAllowed(t, result) // main 扱いされず、agent の issue 検証(green)を通る
+}
+
+// git のグローバルオプション(-C <path> / --no-pager / -c k=v)を前置しても
+// push を見失わない(セルフレビュー指摘の退行修正。worktree で -C は自然)。
+func TestGateGitGlobalOptionsStillGatePush(t *testing.T) {
+	for _, cmd := range []string{
+		"git -C /some/worktree push origin main",
+		"git --no-pager push origin main",
+		"git -c protocol.version=2 push origin main",
+	} {
+		result := executeGate(t, testServer(), "agent/issue-38-x", managedRoot(t), bashJSON(t, cmd))
+		assertBlocked(t, result, "main への直 push は禁止です")
+	}
+}
+
+// 宛先 main の別表記(force refspec + / refs/heads/ / HEAD)も捕捉する。
+func TestGateMainRefspecVariantsBlocked(t *testing.T) {
+	cases := []struct{ cmd, want string }{
+		{"git push origin +main", "main への force push は禁止です"},              // 先頭 + = force refspec
+		{"git push origin refs/heads/main", "main への直 push は禁止です"},        // refs/heads/ 接頭辞
+		{"git push origin HEAD:refs/heads/main", "main への直 push は禁止です"}, // 明示 dst
+		{"git push -fu origin main", "main への force push は禁止です"},           // 結合短縮フラグ -fu
+	}
+	for _, tc := range cases {
+		result := executeGate(t, testServer(), "feature/x", managedRoot(t), bashJSON(t, tc.cmd))
+		assertBlocked(t, result, tc.want)
+	}
+}
+
+// カレントが main のとき、refspec 無し `git push`・`git push origin HEAD`・
+// その同義語 `@` はいずれも宛先が main に解決され、直 push ゲートで止まる。
+func TestGateHeadRefspecFromMainBlocked(t *testing.T) {
+	for _, cmd := range []string{"git push origin HEAD", "git push origin @"} {
+		result := executeGate(t, testServer(), "main", managedRoot(t), bashJSON(t, cmd))
+		assertBlocked(t, result, "main への直 push は禁止です")
+	}
+}
+
+// --all / --mirror は refspec 無しでもローカルの全 ref(main を含む)を push する。
+// カレントが main 以外でもブロックする(refspec 無し = カレントのみの仮定が崩れる穴)。
+func TestGateAllRefsPushBlocked(t *testing.T) {
+	for _, cmd := range []string{"git push --all origin", "git push --mirror origin"} {
+		result := executeGate(t, testServer(), "feature/x", managedRoot(t), bashJSON(t, cmd))
+		assertBlocked(t, result, "全ブランチの push")
+	}
+}
+
+// gh のグローバルフラグ(-R o/r)を前置してもマージゲートに掛かる。
+func TestGateGhGlobalRepoFlagStillGatesMerge(t *testing.T) {
+	server := testServer()
+	mergeReadyPR(server)
+	// merge 条件は満たすので通る = ゲートに掛かった上で条件 green を通過。
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
+		bashJSON(t, "gh -R o/r pr merge 64 --squash"))
 	assertAllowed(t, result)
 }
 
