@@ -1,6 +1,9 @@
 package ghfake
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // LabelEvent は timeline 上のラベル付与イベント(LabeledEvent)。
 type LabelEvent struct {
@@ -24,6 +27,7 @@ type PullRequest struct {
 	Body        string
 	Files       []string // changed files のパス
 	HeadRefName string   // head ブランチ名(カレントブランチの PR 解決に使う)
+	State       string   // "OPEN" | "MERGED" | "CLOSED"(空 = OPEN)
 	// マージゲート(factory gate)用の状態。
 	ClosingIssues []int  // Closes で紐づく issue 番号
 	ChecksState   string // statusCheckRollup.state("" = check なし)
@@ -138,16 +142,25 @@ func (s *Server) doMergeStatusQuery(vars map[string]interface{}, response interf
 	})
 }
 
-// doPRByBranchQuery は headRefName による OPEN PR の解決に応答する。
-func (s *Server) doPRByBranchQuery(vars map[string]interface{}, response interface{}) error {
+// doPRByBranchQuery は headRefName による PR の解決に応答する。
+// クエリに states: OPEN フィルタがあれば OPEN のみ返す(gate の解決)。
+// フィルタが無ければ全状態を返す(branch cleanup のマージ済み判定)。
+func (s *Server) doPRByBranchQuery(query string, vars map[string]interface{}, response interface{}) error {
 	repo := fmt.Sprintf("%v/%v", vars["owner"], vars["name"])
 	branch := fmt.Sprintf("%v", vars["branch"])
-	nodes := []map[string]int{}
+	nodes := []map[string]interface{}{}
 	for _, pr := range s.PullRequests[repo] {
-		if pr.HeadRefName == branch {
-			nodes = append(nodes, map[string]int{"number": pr.Number})
-			break
+		if pr.HeadRefName != branch {
+			continue
 		}
+		state := pr.State
+		if state == "" {
+			state = "OPEN"
+		}
+		if strings.Contains(query, "states: OPEN") && state != "OPEN" {
+			continue
+		}
+		nodes = append(nodes, map[string]interface{}{"number": pr.Number, "state": state})
 	}
 	return reply(response, map[string]interface{}{
 		"repository": map[string]interface{}{
