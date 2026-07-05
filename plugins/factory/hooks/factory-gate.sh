@@ -125,6 +125,11 @@ if grep -qE 'gh[[:space:]]+pr[[:space:]]+merge' <<<"$CMD" ||
 
   gh pr checks "$N" >/dev/null 2>&1 ||
     deny "PR #$N の CI が green ではありません(merge-policy の実行条件)"
+
+  SHA=$(gh pr view "$N" --json headRefOid -q '.headRefOid' 2>/dev/null || true)
+  REVIEW=$(gh api "repos/{owner}/{repo}/commits/$SHA/status"     -q '[.statuses[] | select(.context == "factory-review")][0].state' 2>/dev/null || true)
+  [ "$REVIEW" = "success" ] ||
+    deny "PR #$N は別コンテキストレビュア(factory-review)の green がありません(merge-policy の実行条件)"
 fi
 
 # --- 4. 無人モードの merge:agent 付与ブロック -------------------------------
