@@ -14,6 +14,7 @@
         gopls
         delve
         golangci-lint
+        goreleaser
       ];
     };
   };
