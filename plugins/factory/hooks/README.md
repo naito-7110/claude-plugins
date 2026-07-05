@@ -20,6 +20,7 @@
 | 改憲ブロック | 無人時のみ | `docs/adr/` への Write / Edit を拒否(改憲は対話専用) |
 | merge:agent 付与ブロック | 無人時のみ | ラベル付与・変更コマンドを拒否(付与は grooming 限定) |
 | 配車ゲート | 無人時のみ | Task 起動前に対象 issue を `factory issue verify` |
+| リリースゲート | 常時 | `factory release` の実行・タグ push(`--tags` / `refs/tags/` / `factory/v*`)をブロック(`--dry-run` は許可)— デプロイは人間の tag push(merge-policy) |
 
 無人モードの判定は sentinel ファイル **`.agents/unattended`** の存在(night スキルが作成・削除する)。
 

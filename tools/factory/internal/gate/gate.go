@@ -13,6 +13,9 @@
 //     - docs/adr/ への Write / Edit をブロック(改憲は対話専用)
 //     - merge:agent ラベルの付与・変更をブロック(付与は grooming 限定)
 //     - 配車(Task)前に対象 issue を検証
+//  5. リリースゲート: factory release の実行(--dry-run を除く)とタグ push を
+//     常にブロック(merge-policy: デプロイ = 人間の tag push。release を便利
+//     コマンド化した瞬間に AI が押せる引き金になるため、hook で塞ぐ — #101)
 //
 // issue / pr verify はプロセス起動ではなく internal/verify の関数呼び出しで行う
 // (判定一元化 — #38 と同じ方針)。ブロックの理由は呼び出し側(cli)が stderr に
@@ -77,6 +80,11 @@ var (
 	branchIssuePattern = regexp.MustCompile(`^agent/issue-([0-9]+)`)
 	taskIssuePattern   = regexp.MustCompile(`issue\s*#?([0-9]+)`)
 	labelEditPattern   = regexp.MustCompile(`gh\s+issue\s+edit|gh\s+pr\s+edit|--add-label`)
+
+	// リリースゲート: factory release の起動(パス付き .agents/bin/factory も拾う)と、
+	// タグを push するコマンド(--tags / refs/tags/ / factory/v* 引数)。
+	factoryReleasePattern = regexp.MustCompile(`(^|[;&|\s/])factory\s+release(\s[^;&|]*|)($|[;&|])`)
+	tagPushPattern        = regexp.MustCompile(`push[^;&|]*(\s--tags(\s|$|[;&|])|refs/tags/|\sfactory/v)`)
 )
 
 // Check は hook 入力を判定し、ブロックすべきなら理由(非空)を返す。
@@ -132,6 +140,11 @@ func checkBash(input Input, deps Deps) string {
 		return ""
 	}
 
+	// 5. リリースゲート(常時): デプロイの引き金は人間の操作。
+	if reason := checkRelease(cmd); reason != "" {
+		return reason
+	}
+
 	// 1. main への直 push / force push + 2. push ゲート
 	if gitPushPattern.MatchString(cmd) {
 		if forcePushPattern.MatchString(cmd) && mainWordPattern.MatchString(cmd) {
@@ -155,6 +168,22 @@ func checkBash(input Input, deps Deps) string {
 	// 4. 無人モードの merge:agent 付与ブロック
 	if deps.Unattended && strings.Contains(cmd, "merge:agent") && labelEditPattern.MatchString(cmd) {
 		return "無人モード中の merge:agent 付与・変更は禁止です(付与は grooming の場に限定 — merge-policy)"
+	}
+	return ""
+}
+
+// checkRelease はリリースゲート(merge-policy: デプロイ = 人間の tag push)。
+//   - factory release の実行をブロックする。ただし --dry-run を含む起動は許可
+//     (検証は無害で、AI がリリース状態を確認する用途は正当)
+//   - タグを push するコマンド(--tags / refs/tags/ / factory/v* 引数)をブロックする
+func checkRelease(cmd string) string {
+	for _, match := range factoryReleasePattern.FindAllStringSubmatch(cmd, -1) {
+		if !strings.Contains(match[2], "--dry-run") {
+			return "リリースタグは人間の操作です(merge-policy: デプロイ = 人間の tag push)。--dry-run での確認は可能です"
+		}
+	}
+	if gitPushPattern.MatchString(cmd) && tagPushPattern.MatchString(cmd) {
+		return "タグの push は人間の操作です(merge-policy: デプロイ = 人間の tag push。リリースは人間が factory release を実行してください)"
 	}
 	return ""
 }
