@@ -1,0 +1,42 @@
+# goreleaser 設定(atelier CLI のリリースビルド)。
+#
+# 発火は .github/workflows/atelier-release.yml(atelier/vX.Y.Z タグ push)。
+# goreleaser OSS はモノレポのタグ prefix を解釈できない(Pro 機能)ため、
+# workflow 側で semver のローカルタグを作って GORELEASER_CURRENT_TAG で渡し、
+# Release の作成・添付は gh CLI が行う(release.disable = true)。
+version: 2
+
+project_name: atelier
+
+builds:
+  - main: .
+    binary: atelier
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  disable: true
+
+changelog:
+  disable: true

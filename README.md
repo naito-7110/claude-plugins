@@ -3,4 +3,4 @@
 ## Plugins
 - `git-workflows`
 - `docs`
-- `factory`
+- `atelier`

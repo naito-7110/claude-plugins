@@ -1,3 +1,0 @@
-# ドメイン → 所有パス(factory docs verify が検証)
-# 分割は /factory:domains で漸進導入する(候補: plugin / cli)
-domains: {}
