@@ -43,9 +43,9 @@ flowchart LR
 | スキル | 状態 | 役割 |
 | --- | --- | --- |
 | `/factory:init` | ✅ | 工場の設置: ラベル・ボード・憲法(ADR 0000)・スタック事実・`.agents/` scaffold |
-| `/factory:adr` | 計画中 (#6) | 改憲手続き: ADR の新設・修正・棄却(人間承認必須) |
-| `/factory:triage` | 計画中 (#7) | Inbox 仕分け: agent-ok / needs-human / priority 付与 |
-| `/factory:groom` | 計画中 (#8) | 仕様揉み(対話専用): 受け入れ条件を issue へ書き戻す |
+| `/factory:adr` | ✅ | 改憲手続き: ローカル ADR の新設・改訂・廃止・Overrides、プリセット候補の還流(人間承認必須) |
+| `/factory:triage` | ✅ | Inbox 仕分け: agent-ok / needs-human / priority 付与(fail-closed) |
+| `/factory:groom` | ✅ | 仕様揉み(対話専用): 確定済みの設計を issue へ書き戻し Ready 化。merge:agent 付与の唯一の場 |
 | `/factory:work` | 計画中 (#9) | 中核: 影響調査 → worktree → 実装 → 検証 → セルフレビュー → PR |
 | `/factory:orchestrate` | Phase 2 | PM: ボード読み → 並列配車 → 回収 |
 | `/factory:night` | Phase 3 | 無人ピッカー: ガードレール → 1 件だけ work を無人実行 |

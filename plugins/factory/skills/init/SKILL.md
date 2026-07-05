@@ -1,6 +1,6 @@
 ---
 name: init
-description: Set up the factory in a repository (idempotent): create operation labels, a Projects board, install the constitution guidance (preset ADR reference + local docs/adr scaffold), derive stack facts into CLAUDE.md, and scaffold .agents/
+description: Set up the factory in a repository (idempotent): create operation labels, a Projects board, install the constitution guidance (preset ADR reference + local docs/adr scaffold), derive stack facts into CLAUDE.md, and scaffold the document map (docs/factory), domain docs, and .agents/
 tools:
   - Bash(gh auth status, gh repo view, gh label create, gh label list, gh project list, gh project create, gh project link, gh api, git ls-files, git check-ignore)
   - AskUserQuestion
@@ -118,10 +118,32 @@ gh project link <number> --owner <owner>
 
 CLAUDE.md が存在しなければ新規作成する。
 
-### 6. `.agents/` scaffold
+### 6. 文書構造と `.agents/` の scaffold
+
+**文書の地図(`docs/factory/`)** — documentation プリセットの階層に従い、無ければ作成する(既存は壊さない):
+
+- `docs/factory/README.md`: 文書の地図。各層(プリセット + `docs/adr/` / `docs/domains/` / CLAUDE.md マーカー節 / `docs/factory/`)の場所と役割の案内
+- `docs/factory/ownership.yml`: 機械可読な所有マップ。`factory docs verify` が検証する:
+
+```yaml
+# パス(glob)→ ドメインの所有マップ
+domains:
+  <domain>:
+    paths:
+      - "src/<domain>/**"
+```
+
+- ドメイン未分割のリポジトリは `domains: {}` で開始してよい(漸進導入)
+
+**ドメイン知識(`docs/domains/`)** — 所有マップにドメインを定義した場合、各ドメインの雛形を作成する:
+
+- `docs/domains/README.md`(ドメイン一覧)
+- `docs/domains/<domain>/README.md`(責務・ユビキタス言語・不変条件)・`contracts.md`(公開契約)・`decisions/`
+
+**作業状態(`.agents/`)**:
 
 - `.agents/journal/` を作成(work のジャーナル置き場。`.gitkeep` を置く)
-- `.gitignore` に `.worktrees/` がなければ追記する(work が worktree を切る場所)
+- `.gitignore` に `.worktrees/` と `.agents/` がなければ追記する
 
 ### 7. 完了報告
 
@@ -133,6 +155,7 @@ CLAUDE.md が存在しなければ新規作成する。
 | Projects ボード | ✅ / スキップ |
 | 憲法(CLAUDE.md マーカー節 + docs/adr/ 案内) | ✅ / 既存 ADR を尊重 |
 | CLAUDE.md スタック事実 | ✅ |
+| 文書の地図(docs/factory)+ domains 雛形 | ✅ / 既存を尊重 |
 | `.agents/` | ✅ |
 
 残る手動作業(提示のみ。実行しない):
