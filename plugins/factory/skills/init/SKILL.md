@@ -123,6 +123,7 @@ CLAUDE.md が存在しなければ新規作成する。
 **factory 運用ファイル(`.factory/`)** — 配置の基準は「誰の持ち物か」(documentation プリセット): factory が生成し機械が読む運用ファイルは `.factory/`(dotdir、既存リポジトリの慣習と競合しない)、人間の一次文書(ADR・ドメイン知識)は標準の `docs/` に置く。無ければ作成する(既存は壊さない)。**`.factory/` はコミット対象**(gitignore しない):
 
 - `.factory/README.md`: 文書の地図。各層(プリセット + `docs/adr/` / `docs/domains/` / CLAUDE.md マーカー節 / `.factory/`)の場所と役割の案内
+- `.factory/mode`: 運転モード。**既定 `manual`(無人運転しない)で作成**する。unattended 運転を許可するときに人間が `auto` へ変更してコミットする(night スキル参照)
 - `.factory/ownership.yml`: 機械可読な所有マップ。`factory docs verify` が検証する:
 
 ```yaml
