@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/cronfake"
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/mode"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/tick"
 )
 
@@ -238,8 +239,59 @@ func (b *blockingExec) Run(dir, name string, args ...string) (int, error) {
 	return b.code, nil
 }
 
-func TestRunPassesThroughExitCode(t *testing.T) {
+// autoRoot は mode=auto に設定済みの temp root を返す(tick run は mode gate を
+// 内部で確認するため、起動系のテストは auto を前提にする)。
+func autoRoot(t *testing.T) string {
+	t.Helper()
 	root := t.TempDir()
+	if err := mode.SetMode(root, mode.Auto); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestRunManualModeSkipsWithoutLaunching(t *testing.T) {
+	// mode=manual(既定)では claude を起動する前にスキップする(exit 0 の正常系)。
+	// night の手順 0 でも mode gate を見るが、そこまで進むと claude セッションが
+	// 1 本立ってしまうため、起動前にここで落とす(サブスク枠の浪費防止)。
+	root := t.TempDir() // mode 未設定 = manual(fail-closed)
+	launcher := &stubExec{}
+	var out strings.Builder
+
+	code, err := tick.Run(launcher, root, "", &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Errorf("code = %d, want 0(manual はエラーにしない)", code)
+	}
+	if len(launcher.calls) != 0 {
+		t.Errorf("manual なのに claude が起動されている: %q", launcher.calls)
+	}
+	if !strings.Contains(out.String(), "mode gate によりスキップします") ||
+		!strings.Contains(out.String(), "manual") {
+		t.Errorf("スキップの 1 行が出力されない: %q", out.String())
+	}
+}
+
+func TestRunAutoModeLaunches(t *testing.T) {
+	root := autoRoot(t)
+	launcher := &stubExec{}
+
+	code, err := tick.Run(launcher, root, "", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Errorf("code = %d", code)
+	}
+	if len(launcher.calls) != 1 {
+		t.Errorf("auto なのに claude が起動されない: %q", launcher.calls)
+	}
+}
+
+func TestRunPassesThroughExitCode(t *testing.T) {
+	root := autoRoot(t)
 	launcher := &stubExec{code: 7}
 
 	code, err := tick.Run(launcher, root, "", io.Discard)
@@ -256,7 +308,7 @@ func TestRunPassesThroughExitCode(t *testing.T) {
 
 func TestRunSecondInstanceSkipsWithExitZero(t *testing.T) {
 	// 二重起動: 先行がロックを保持している間、後発は exit 0 で即終了する(正常系)。
-	root := t.TempDir()
+	root := autoRoot(t)
 	first := &blockingExec{started: make(chan struct{}), release: make(chan struct{}), code: 7}
 	done := make(chan int, 1)
 	go func() {
@@ -292,7 +344,7 @@ func TestRunSecondInstanceSkipsWithExitZero(t *testing.T) {
 
 func TestRunPromptSelectsLockAndSkill(t *testing.T) {
 	// prompt ごとに独立したロック(night と review は同時に走れる)。
-	root := t.TempDir()
+	root := autoRoot(t)
 	night := &blockingExec{started: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan int, 1)
 	go func() {

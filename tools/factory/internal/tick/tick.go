@@ -25,6 +25,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/mode"
 )
 
 // Crontab は crontab コマンド(プロセス境界)。
@@ -146,13 +148,30 @@ func (s SystemExec) Run(dir, name string, args ...string) (int, error) {
 	return 0, nil
 }
 
-// Run は多重起動ロックの下で claude -p <prompt> を 1 回起動し、
-// その終了コードを引き継ぐ。ロックが取得できない(他 tick が実行中)のは
-// **正常系**で、1 行出力して 0 を返す(cron からの重複起動をエラーにしない)。
+// Run は運転モードと多重起動ロックを確認した上で claude -p <prompt> を
+// 1 回起動し、その終了コードを引き継ぐ。次の 2 つはどちらも**正常系**で、
+// 1 行出力して 0 を返す(cron からの起動をエラーにしない):
+//
+//   - mode gate 不通過(manual 等): claude を起動する前に mode を内部関数で
+//     確認する。night スキルの手順 0 でも mode gate を見るが、そこまで進むと
+//     claude セッションが 1 本立ってしまう(15 分 tick なら日に 96 回)。
+//     サブスク枠の浪費を止めるため、起動前にここで落とす(night 側の確認は
+//     defense-in-depth として残る)
+//   - ロック取得失敗: 他 tick が実行中(多重起動防止)
 func Run(launcher Exec, root, prompt string, out io.Writer) (int, error) {
 	if strings.TrimSpace(prompt) == "" {
 		prompt = DefaultPrompt
 	}
+
+	state, err := mode.Load(root)
+	if err != nil {
+		return 1, err
+	}
+	if ok, reason := mode.Gate(state); !ok {
+		fmt.Fprintf(out, "==> mode gate によりスキップします(%s)\n", reason)
+		return 0, nil
+	}
+
 	lockPath := filepath.Join(root, filepath.FromSlash(LockFile(prompt)))
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return 1, fmt.Errorf("%s を作成できません: %w", filepath.Dir(lockPath), err)

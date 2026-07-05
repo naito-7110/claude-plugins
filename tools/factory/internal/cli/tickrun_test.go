@@ -10,8 +10,19 @@ import (
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/board"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/cli"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/cronfake"
+	"github.com/naito-7110/claude-plugins/tools/factory/internal/mode"
 	"github.com/naito-7110/claude-plugins/tools/factory/internal/tick"
 )
+
+// autoModeRoot は mode=auto 設定済みの temp root(tick run は mode gate を内部確認する)。
+func autoModeRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := mode.SetMode(root, mode.Auto); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
 
 // cliExecStub は claude 起動の fake(起動内容と回数を状態として記録する)。
 type cliExecStub struct {
@@ -40,7 +51,7 @@ func executeTickRun(t *testing.T, launcher tick.Exec, args ...string) run {
 }
 
 func TestTickRunPassesThroughExitCode(t *testing.T) {
-	root := t.TempDir()
+	root := autoModeRoot(t)
 	launcher := &cliExecStub{code: 3}
 
 	result := executeTickRun(t, launcher, "tick", "run", "--root", root)
@@ -55,8 +66,25 @@ func TestTickRunPassesThroughExitCode(t *testing.T) {
 	}
 }
 
-func TestTickRunCustomPrompt(t *testing.T) {
+func TestTickRunManualModeSkipsClaude(t *testing.T) {
+	// mode=manual(既定)では claude を起動せず exit 0(サブスク枠を消費しない)。
 	root := t.TempDir()
+	launcher := &cliExecStub{}
+
+	result := executeTickRun(t, launcher, "tick", "run", "--root", root)
+	if result.code != cli.ExitOK {
+		t.Fatalf("code = %d, want 0(manual はエラーにしない)(err=%q)", result.code, result.err)
+	}
+	if len(launcher.calls) != 0 {
+		t.Errorf("manual なのに claude が起動されている: %q", launcher.calls)
+	}
+	if !strings.Contains(result.out, "mode gate によりスキップします") {
+		t.Errorf("スキップの 1 行が出力されない: %q", result.out)
+	}
+}
+
+func TestTickRunCustomPrompt(t *testing.T) {
+	root := autoModeRoot(t)
 	launcher := &cliExecStub{}
 
 	result := executeTickRun(t, launcher, "tick", "run", "--root", root, "--prompt", "/factory:review")

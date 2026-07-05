@@ -80,6 +80,8 @@ const usage = `使い方: factory <board|issue|pr|docs|flags|mode|tick|gate|bran
   tick remove   マーカーブロックを crontab から除去する(他の行には触れない)
   tick status   tick の設置有無と内容を表示する
   tick run      多重起動ロック付きで claude -p <prompt> を 1 回起動する(cron の実行入口)
+                起動前に運転モード(mode gate)を内部で確認し、auto でなければ
+                claude を立てずに exit 0(manual 中のサブスク枠消費をゼロにする)。
                 ロックは Go 実装(unix: flock(2) / windows: LockFileEx)。取得できなければ
                 他 tick が実行中の正常系として exit 0。claude の終了コードを引き継ぐ
                 --root <dir>           リポジトリのルート(既定: カレントディレクトリ)
