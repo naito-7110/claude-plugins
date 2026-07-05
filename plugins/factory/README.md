@@ -48,7 +48,7 @@ flowchart LR
 | `/factory:groom` | ✅ | 仕様揉み(対話専用): 確定済みの設計を issue へ書き戻し Ready 化。merge:agent 付与の唯一の場 |
 | `/factory:work` | ✅ | 中核: 影響調査 → worktree → TDD 実装 → 検証 → 文書同期 → セルフレビュー → PR(merge:agent なら条件付きマージまで) |
 | `/factory:domains` | ✅ | ドメイン分割(対話専用): 共変更の実測を根拠に境界を確定し、所有マップと domains 文書を生成 |
-| `/factory:orchestrate` | Phase 2 | PM: ボード読み → 並列配車 → 回収 |
+| `/factory:orchestrate` | ✅ | PM: 台帳復元 → ボード読み → 並列配車(最大 2・backpressure)→ 回収 |
 | `/factory:night` | Phase 3 | 無人ピッカー: ガードレール → 1 件だけ work を無人実行 |
 | `/factory:report` | Phase 3 | 朝のダイジェスト: 夜間の成果・エスカレーション・滞留を要約 |
 
