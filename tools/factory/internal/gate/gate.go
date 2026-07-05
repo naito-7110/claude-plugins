@@ -58,6 +58,7 @@ type Deps struct {
 	NewClient  func() (verify.GraphQL, error)
 	Repo       func() (string, error)
 	Branch     func() (string, error) // カレントブランチ(unborn でも名前を返す実装を注入する)
+	Managed    bool                   // factory 管理下か(.factory/ の有無。呼び出し側が解決する)
 	Unattended bool                   // .agents/unattended の有無(呼び出し側が解決する)
 	Err        io.Writer              // verify 所見の出力先(ブロック理由の判断材料)
 }
@@ -89,7 +90,14 @@ var (
 
 // Check は hook 入力を判定し、ブロックすべきなら理由(非空)を返す。
 // error は判定不能な実行失敗(hook 契約では exit 2 に変換しない)。
+//
+// factory 管理外(.factory/ が無い)のリポジトリでは全ツールを許可する。
+// プラグインはユーザーレベルで有効化され hook は全リポジトリで発火するため、
+// スコープを切らないと無関係なリポジトリまでゲートされる(#103 の実地バグ)。
 func Check(input Input, deps Deps) (string, error) {
+	if !deps.Managed {
+		return "", nil
+	}
 	switch input.ToolName {
 	case "Write", "Edit":
 		return checkWrite(input, deps), nil
