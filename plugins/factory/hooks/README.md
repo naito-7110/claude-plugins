@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | main 直 push / force push | 常時 | 常にブロック(git-workflow) |
 | push ゲート | 常時 | `agent/issue-<n>-*` ブランチの push 前に `factory issue verify`(ラベルなしの実装は push 不可) |
-| マージゲート | 常時 | `factory pr verify` + Closes 紐づけ + 紐づく issue の `merge:agent` + CI green(merge-policy) |
+| マージゲート | 常時 | `factory pr verify` + Closes 紐づけ + 紐づく issue の `merge:agent` + CI green + **factory-review status = success**(merge-policy の全実行条件) |
 | 改憲ブロック | 無人時のみ | `docs/adr/` への Write / Edit を拒否(改憲は対話専用) |
 | merge:agent 付与ブロック | 無人時のみ | ラベル付与・変更コマンドを拒否(付与は grooming 限定) |
 | 配車ゲート | 無人時のみ | Task 起動前に対象 issue を `factory issue verify` |

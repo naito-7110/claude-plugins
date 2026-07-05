@@ -21,6 +21,10 @@ set -euo pipefail
 INPUT=$(cat)
 TOOL=$(jq -r '.tool_name // empty' <<<"$INPUT")
 
+# hooks は「現在のディレクトリ」で実行される(公式仕様)。相対パス
+# (.agents/ / git コマンド)の基準をプロジェクトルートに固定する。
+cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || true
+
 deny() {
   echo "factory-gate: $1" >&2
   exit 2
@@ -125,6 +129,11 @@ if grep -qE 'gh[[:space:]]+pr[[:space:]]+merge' <<<"$CMD" ||
 
   gh pr checks "$N" >/dev/null 2>&1 ||
     deny "PR #$N の CI が green ではありません(merge-policy の実行条件)"
+
+  SHA=$(gh pr view "$N" --json headRefOid -q '.headRefOid' 2>/dev/null || true)
+  REVIEW=$(gh api "repos/{owner}/{repo}/commits/$SHA/status"     -q '[.statuses[] | select(.context == "factory-review")][0].state' 2>/dev/null || true)
+  [ "$REVIEW" = "success" ] ||
+    deny "PR #$N は別コンテキストレビュア(factory-review)の green がありません(merge-policy の実行条件)"
 fi
 
 # --- 4. 無人モードの merge:agent 付与ブロック -------------------------------

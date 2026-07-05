@@ -62,6 +62,7 @@ work の完了報告を受けたら:
 - **PR 作成まで到達** → 台帳を pr-created に更新、Status → In Review
 - **merge:agent でマージまで到達** → 台帳を done に更新、事後レビュー対象として報告に含める
 - **エスカレーション(needs-human)** → 内容を確認し、対話中なら人間へ要約して引き継ぐ。無人時は issue コメントに残っていることを確認して台帳を escalated に更新
+- **レビュア不通過(factory-review = failure)の PR** → 指摘コメントを確認し、`merge:agent` を外して人間レーンへ再ラベリングする(merge-policy のフォールバック。指摘が軽微で work の再実行が妥当なら、修正タスクとして再配車してもよい — 新しい commit で status は未判定に戻り、再レビューが走る)
 - ラベル・Status・台帳の食い違いがあれば実態に同期する
 
 ## 5. 報告
