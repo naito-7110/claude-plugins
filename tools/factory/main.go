@@ -41,6 +41,7 @@ func main() {
 		},
 		CurrentBranch: currentBranch,
 		Crontab:       tick.System{},
+		TickExec:      tick.SystemExec{Stdout: os.Stdout, Stderr: os.Stderr},
 		In:            os.Stdin,
 		Out:           os.Stdout,
 		Err:           os.Stderr,
