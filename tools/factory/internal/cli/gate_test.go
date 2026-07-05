@@ -179,6 +179,56 @@ func TestGatePushOtherBranchPasses(t *testing.T) {
 	assertAllowed(t, result)
 }
 
+// --- 5. リリースゲート(デプロイ = 人間の tag push)---
+
+func TestGateFactoryReleaseBlocked(t *testing.T) {
+	for _, cmd := range []string{
+		"factory release factory/v0.3.0",
+		".agents/bin/factory release v1.0.0",
+		"cd /repo && factory release factory/v0.3.0 --remote origin",
+	} {
+		result := executeGate(t, testServer(), "agent/issue-38-x", t.TempDir(), bashJSON(t, cmd))
+		assertBlocked(t, result, "リリースタグは人間の操作です")
+	}
+}
+
+func TestGateFactoryReleaseDryRunPasses(t *testing.T) {
+	// --dry-run は検証のみで無害(AI がリリース状態を確認する用途は正当)。
+	for _, cmd := range []string{
+		"factory release factory/v0.3.0 --dry-run",
+		"factory release --dry-run factory/v0.3.0",
+	} {
+		result := executeGate(t, testServer(), "agent/issue-38-x", t.TempDir(), bashJSON(t, cmd))
+		assertAllowed(t, result)
+	}
+}
+
+func TestGateTagPushBlocked(t *testing.T) {
+	for _, cmd := range []string{
+		"git push --tags",
+		"git push origin --tags",
+		"git push origin refs/tags/factory/v0.3.0",
+		"git push origin factory/v0.3.0",
+	} {
+		result := executeGate(t, testServer(), "agent/issue-38-x", t.TempDir(), bashJSON(t, cmd))
+		assertBlocked(t, result, "タグの push は人間の操作です")
+	}
+}
+
+func TestGateReleaseGateNoFalsePositives(t *testing.T) {
+	// 通常ブランチの push・release を含むだけの無関係なコマンドは誤爆しない。
+	server := testServer()
+	readyIssue(server)
+	for _, cmd := range []string{
+		"git push -u origin agent/issue-38-gate", // 従来どおりの push ゲート通過
+		"echo factory released",                  // 単語の部分一致ではブロックしない
+		"gh release view factory/v0.1.0",         // gh release(閲覧)は対象外
+	} {
+		result := executeGate(t, server, "agent/issue-38-gate", t.TempDir(), bashJSON(t, cmd))
+		assertAllowed(t, result)
+	}
+}
+
 // --- 3. マージゲート ---
 
 func TestGateMergeAllGreenPasses(t *testing.T) {
