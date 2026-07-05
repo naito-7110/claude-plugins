@@ -55,10 +55,12 @@ const (
 // Level は所見の重さ。NG が 1 つでもあれば検証は失敗(非ゼロ exit)になる。
 type Level string
 
-// 所見のレベル。OK / NG がゲートで、Info は判断材料の表示のみ。
+// 所見のレベル。OK / NG がゲートで、Warn は改善提案(exit code に影響しない)、
+// Info は判断材料の表示のみ。
 const (
 	LevelOK   Level = "OK"
 	LevelNG   Level = "NG"
+	LevelWarn Level = "警告"
 	LevelInfo Level = "情報"
 )
 
