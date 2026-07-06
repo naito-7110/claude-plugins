@@ -124,7 +124,8 @@ CLAUDE.md が存在しなければ新規作成する。
 
 > **この順序は本質的な依存(#103)**: hook ゲートは「`.atelier/` の存在 = atelier 管理下」で発動し、管理下でバイナリが欠落していると fail-closed で全コマンドを止める。`.atelier/` を先に作るとバイナリ取得コマンド自体がブロックされる鶏卵デッドロックになる。
 
-- Releases(タグ `atelier/vX.Y.Z`)から OS / arch に合う atelier バイナリを `gh release download` で取得し、checksums.txt を検証して `.agents/bin/atelier` に置く(`.agents/` は gitignore 済み — バイナリをコミットしない)
+- 通常は **SessionStart のブートストラップ(hooks/atelier-bootstrap.sh)が自動取得済み**(同梱ピンで検証して `.agents/bin/atelier` に配置 — ADR 0003)。`.agents/bin/atelier` が既にあればこの手順はスキップしてよい
+- 無い場合(オフラインだった・windows 等)は、Releases(タグ `atelier/vX.Y.Z`)から OS / arch に合う atelier バイナリを `gh release download` で取得し、checksums.txt を検証して `.agents/bin/atelier` に置く(`.agents/` は gitignore 済み — バイナリをコミットしない)
 - リリースが未整備・取得不能な場合はスキップし、その旨を完了報告に載せる(hook ゲート・スキルの前提チェックはバイナリ無しでは縮退動作になる)
 - 万一デッドロックに入った場合(`.atelier/` あり・バイナリなし)、ゲートの拒否メッセージに含まれるブートストラップ 1 行を**人間が `!` プレフィックスで直接実行**すれば復旧できる(`!` 実行は hook を通らない)
 

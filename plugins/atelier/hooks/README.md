@@ -2,13 +2,15 @@
 
 `atelier-gate.sh` は PreToolUse hook として動く**薄い入口**で、判定の実体は atelier バイナリ(`issue verify` / `pr verify`)に一本化されている。拒否は exit 2 + stderr の理由で行われ、エージェントはその理由をそのままエスカレーション材料に使える。
 
+`atelier-bootstrap.sh` は SessionStart hook として動く**ゲートバイナリのセルフブートストラップ**(ADR 0003)。バイナリの欠落/ピン不一致を検知したとき、公開 Releases から curl で取得し、プラグイン同梱のピン(`pin/version` + `pin/checksums.txt`、レビュー済み commit が信頼の根)との照合が成功した場合のみ `.agents/bin/` に配置する。失敗(オフライン・チェックサム不一致)は何もせず終了し、ゲートの fail-closed + 手動 1 行案内が現行どおり働く — ブートストラップは利便であって防御の前提ではない。不一致の検知は配置時に書くマーカー(`.agents/bin/atelier.version`)との比較で行い、全マシンをプラグインのピンへ収束させる(windows は対象外 — 従来の手動手順)。挙動は `tools/atelier/internal/bootstrapscript` の Go テストで固定されている。
+
 ## 登録(自動)
 
 `hooks/hooks.json` により、**プラグインを有効化すると自動で登録される**(Claude Code のプラグイン hooks 機構)。手動の settings 編集は不要。
 
 - hooks はセッション開始時に読み込まれる(プラグイン更新後は新しいセッションで反映)
 - 登録状態は `/hooks` で確認できる
-- 実行時の依存: `bash` / `jq` / `gh` / atelier バイナリ(`.agents/bin/atelier` または PATH — /atelier:init が取得する。無い場合、マージゲートは fail-closed で停止する)
+- 実行時の依存: `bash` / `jq` / `gh` / atelier バイナリ(`.agents/bin/atelier` または PATH — SessionStart のブートストラップが自動取得し、/atelier:init でも取得できる。無い場合、マージゲートは fail-closed で停止する)。ブートストラップ自体は `curl` / `tar` / `sha256sum`(または `shasum`)のみに依存し、`gh` と GitHub 認証を要求しない
 
 ## ゲート一覧
 

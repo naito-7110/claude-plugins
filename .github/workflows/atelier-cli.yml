@@ -4,11 +4,17 @@ on:
   pull_request:
     paths:
       - "tools/atelier/**"
+      # bootstrapscript の Go テストは plugins/atelier/hooks/ の bash hook を検証する
+      # ため、hook だけの変更でもテストを走らせる(文書の「テストで固定」を実効化)
+      - "plugins/atelier/hooks/**"
       - ".github/workflows/atelier-cli.yml"
   push:
     branches: [main]
     paths:
       - "tools/atelier/**"
+      # bootstrapscript の Go テストは plugins/atelier/hooks/ の bash hook を検証する
+      # ため、hook だけの変更でもテストを走らせる(文書の「テストで固定」を実効化)
+      - "plugins/atelier/hooks/**"
       - ".github/workflows/atelier-cli.yml"
 
 permissions:
