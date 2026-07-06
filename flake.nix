@@ -5,17 +5,20 @@
 
   outputs = { self, nixpkgs }:
   let
-    system = "aarch64-darwin";
-    pkgs = import nixpkgs { inherit system; };
+    systems = [ "aarch64-darwin" "x86_64-linux" "aarch64-linux" ];
+    forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
+      f (import nixpkgs { inherit system; }));
   in {
-    devShells.${system}.default = pkgs.mkShell {
-      packages = with pkgs; [
-        go
-        gopls
-        delve
-        golangci-lint
-        goreleaser
-      ];
-    };
+    devShells = forAllSystems (pkgs: {
+      default = pkgs.mkShell {
+        packages = with pkgs; [
+          go
+          gopls
+          delve
+          golangci-lint
+          goreleaser
+        ];
+      };
+    });
   };
 }
