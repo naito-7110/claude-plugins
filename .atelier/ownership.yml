@@ -1,3 +1,0 @@
-# ドメイン → 所有パス(atelier docs verify が検証)
-# 分割は /atelier:domains で漸進導入する(候補: plugin / cli)
-domains: {}
