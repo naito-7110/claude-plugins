@@ -24,8 +24,8 @@ open PR のうち、次をすべて満たすものがレビュー対象:
 ## 2. レビュー(1 PR ずつ)
 
 1. **材料の収集**: `gh pr diff` / 関連 issue の「確定済みの設計」と受け入れ条件 / 憲法の選択読み(`${CLAUDE_PLUGIN_ROOT}/adr/README.md` のマッピングで diff の領域分)/ ローカル `docs/adr/` / 触れたドメインの契約(`docs/domains/<d>/contracts.md`)
-2. **観点**: work 手順 8 の観点セット(正準 — 観点が増減してもそこに従う)を**独立にやり直す**。加えて「diff が受け入れ条件を実際に満たしているか」を突き合わせる
-3. 大きい diff は観点別サブエージェント(Task)へ並列委譲してよい(各観点に diff + 当該プリセットのみを渡す)
+2. **観点**: work 手順 8 と同じ `atelier:review:*` team(定義は plugin の `agents/review/`)を**独立に並列 dispatch する**。review が起動主体なので、実装コンテキストを共有しない「別コンテキストレビュア」の条件を満たす。各 agent は自分の観点の preset だけを read-only で見る。加えて **PM 自身が**「diff が受け入れ条件を実際に満たしているか」を突き合わせる
+3. team dispatch で各観点は並列に走る(大きい diff でも並列化される)。project が同名の `.claude/agents/` を定義していればそれが優先される
 
 ## 3. 判定の表明(commit status)
 
