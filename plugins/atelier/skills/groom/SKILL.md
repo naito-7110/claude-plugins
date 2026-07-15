@@ -3,8 +3,8 @@ name: groom
 description: 仕様揉み(対話専用)。issue の曖昧点・エッジケース・受け入れ条件の漏れを人間と 1 論点ずつ確定し、「確定済みの設計」として本文へ書き戻して Ready 化する。merge:agent の付与はこのスキルだけが行える
 tools:
   - Bash(gh issue view, gh issue edit, gh issue comment, gh issue list, gh project item-list, gh project item-edit, gh repo view)
-  - AskUserQuestion
   - Task
+  - AskUserQuestion
   - Read
   - Glob
   - Grep
@@ -21,14 +21,9 @@ tools:
 
 ### 2. コードベース解析
 
-仕様を確定できる深さまでコードの実態を調べる(広い探索は Explore サブエージェントに委ねてよい):
+**/atelier:analyze を `spec` 目的で呼び**、影響マップ(接触面・現状挙動とのズレ・共同変更・既存テスト・規模感・該当ドメイン)を得る。これを論点と必須アジェンダの材料にする — 特に PR 分割案(アジェンダ 5)・変更面積の見積もり・複数ドメイン判定(下記 2.5)。前提が古い issue(現状挙動とのズレ)は論点として提示する。
 
-- **対象領域の特定**: 変更が触れるパス・モジュール・公開面(API・スキーマ・設定)
-- **現状挙動の確認**: issue の前提が現状のコードと一致しているか(前提が古い issue は論点として提示する)
-- **接触面の列挙**: 呼び出し元・依存・既存テストの有無
-- **変更面積の見積もり**: PR 分割案(アジェンダ 3)と工数感の根拠にする
-
-解析結果は論点・必須アジェンダの判断材料であり、**ここで実装に着手しない**。参照を網羅する本格的な影響調査は work の責務(仕様確定に必要な深さまでで止める)。
+解析結果は判断材料であり、**ここで実装に着手しない**。全参照を網羅する `impact` 目的の調査は work の責務(仕様確定に必要な深さまでで止める)。
 
 ### 2.5 複数ドメイン跨ぎの判定
 
@@ -42,16 +37,17 @@ tools:
 
 `AskUserQuestion` で 1 論点ずつ確定する。選択肢には必ず trade-off を添える(人間がそのまま判断材料に使える形)。
 
-### 5. 必須アジェンダ
+### 5. Ready 化ゲート(spec-alignment に従う)
 
-正準は `${CLAUDE_PLUGIN_ROOT}/adr/spec-alignment.md`。issue の内容にかかわらず次を扱い、**該当しない項は「該当なし」を確認して高速に閉じる**:
+正準は手順 1 で読んだ `${CLAUDE_PLUGIN_ROOT}/adr/spec-alignment.md`。その「Ready の条件」「前提と観測の規律」「必須アジェンダ」を**そのまま実行する**(この場でリストを再定義しない — アジェンダが増減してもプリセットに追従する)。要点:
 
-1. **排他制御の選択**(concurrency-process): 書き込みを伴うか。楽観(既定)か悲観か
-2. **feature flag の要否**(feature-flags): 必要なら name / owner / 期限をその場で決める
-3. **最小 PR の分割案**(pr-granularity): 依存順つきの分割案を合意する
-4. **API リソース設計**(rest-api-design。REST の場合): メソッド × パス・ネスト構造を確定する
-5. **マージレーンの提案**(merge-policy): 失格条件(敏感領域・破壊的変更・スキーマ変更)に照らして agent マージ可否を提案し、**人間が承認する**
-6. **依存の追加**(dependency-licensing / supply-chain-security): 新規依存を洗い出して明記。選定は pros/cons + ライセンス確認つき
+- 設計レベルの前段ゲート(目的・手段の分離と往復 / 品質 portfolio)を先に通してから、手段レベル(排他制御・feature flag・PR 分割・API 設計・マージレーン・依存・文書)を確定する
+- issue の内容にかかわらず全項目を扱い、**該当しない項は「該当なし」を確認して高速に閉じる**
+
+このうち **groom の場でのみ握る**判断(spec-alignment に委ねず、ここで明示的に確定する):
+
+- **マージレーン**(merge-policy): 失格条件(敏感領域・破壊的変更・スキーマ変更)に照らして agent マージ可否を提案し、**人間が承認する**(承認された場合のみ手順 8 で `merge:agent` を付与)
+- **依存の追加**(dependency-licensing / supply-chain-security): 新規依存は pros/cons + ライセンス確認つきで明記する
 
 ### 6. 憲法照合と ADR 候補の発見
 

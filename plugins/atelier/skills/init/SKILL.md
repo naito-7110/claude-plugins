@@ -1,6 +1,6 @@
 ---
 name: init
-description: Set up the atelier in a repository (idempotent): create operation labels, a Projects board, install the constitution guidance (preset ADR reference + local docs/adr scaffold), derive stack facts into CLAUDE.md, and scaffold the document map (docs/atelier), domain docs, and .agents/
+description: atelier の設置(冪等)。運用ラベル・Projects ボードの作成、憲法の案内の設置(プリセット ADR 参照 + ローカル docs/adr の雛形)、スタック事実の CLAUDE.md への導出、文書の地図(.atelier)・ドメイン文書・.agents/ の scaffold を行う。リポジトリへ atelier を導入するとき、または再実行で更新するときに使う
 tools:
   - Bash(gh auth status, gh repo view, gh label create, gh label list, gh project list, gh project create, gh project link, gh api, git ls-files, git check-ignore)
   - AskUserQuestion
@@ -82,7 +82,7 @@ gh project link <number> --owner <owner>
    - 既存の ADR があれば読み込んで要約提示する(**書き換えない**。変更提案は /atelier:adr へ誘導)
    - 無ければ `docs/adr/README.md`(NNNN 採番・`Overrides: <slug>` 規約・/atelier:adr 経由の改訂、を説明する小さな案内)を作成する
 
-3. **対話はプロジェクト固有の原則のみ**: プリセットの守備範囲(テスト方針・セキュリティ 2 領域・ログ・フラグ・PR 粒度・エラーハンドリング・認可・排他制御・API 設計・i18n・パフォーマンス・仕様すり合わせ・マージポリシー)を一覧提示し、**「プリセットで足りない、このプロジェクト固有の原則・制約」だけ**を `AskUserQuestion` で確認する。確定した固有原則はローカル ADR として `docs/adr/` に起こす(出なければ起こさない。最小で始め、フライホイールで育てる)
+3. **対話はプロジェクト固有の原則のみ**: プリセットの守備範囲(正準は `${CLAUDE_PLUGIN_ROOT}/adr/README.md` の収録一覧 — ハードコードせず、その時点の一覧を提示する)を示し、**「プリセットで足りない、このプロジェクト固有の原則・制約」だけ**を `AskUserQuestion` で確認する。確定した固有原則はローカル ADR として `docs/adr/` に起こす(出なければ起こさない。最小で始め、フライホイールで育てる)
 
 **ガード(三層の切り分け)**: 対話で挙がった内容は三層に振り分ける。
 

@@ -3,8 +3,8 @@ name: domains
 description: ドメイン分割(対話専用)。domain-partitioning プリセットの基準に沿ってドメインの定義・分割・統合・パス移管を人間と確定し、ownership.yml と docs/domains の雛形を生成する。init は空マップまでしか作らないため、ドメインを切るのはこのスキルだけ
 tools:
   - Bash(gh issue view, gh issue comment, gh pr create, git log, git shortlog, git checkout, git add, git commit, git push, git ls-files, atelier)
-  - AskUserQuestion
   - Task
+  - AskUserQuestion
   - Read
   - Write
   - Glob
@@ -18,7 +18,7 @@ tools:
 ### 1. 現状把握
 
 - `.atelier/ownership.yml` と `docs/domains/` の現状(未分割なら `domains: {}`)
-- **共変更の分析**: `git log` で「同じ PR / コミットで一緒に変わるファイル群」を観察する(変更理由の単位の実測。広い解析は Explore サブエージェントへ委譲可)
+- **共変更の分析**: `git log` でリポジトリ全体の共変更(同じ PR / コミットで一緒に変わるファイル群)を観測し、変更理由の単位を実測する。特定のパス群に絞って掘るときは /atelier:analyze にそのパスを渡して影響マップの `co_change` を得る(analyze は対象必須なので全リポジトリ観測は git 直接で行う)
 - 依存の向き・公開面(API・イベント)の当たりをつける
 
 ### 2. 候補の提示
