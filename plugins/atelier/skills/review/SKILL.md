@@ -23,7 +23,7 @@ open PR のうち、次をすべて満たすものがレビュー対象:
 
 ## 2. レビュー(1 PR ずつ)
 
-1. **材料の収集**: `gh pr diff` / 関連 issue の「確定済みの設計」と受け入れ条件 / 憲法の選択読み(`${CLAUDE_PLUGIN_ROOT}/adr/README.md` のマッピングで diff の領域分)/ ローカル `docs/adr/` / 触れたドメインの契約(`docs/domains/<d>/contracts.md`)
+1. **材料の収集**: `gh pr diff` / 関連 issue の「確定済みの設計」と受け入れ条件 / 憲法の選択読み(`${CLAUDE_PLUGIN_ROOT}/adr/README.md` のマッピングで diff の領域分)/ ローカル `docs/adr/` / 触れたドメインの契約(`docs/domains/<d>/contracts.md`)。**diff が依存に触れるなら /atelier:deps** で供給網・ライセンスを監査し、結果を判定材料にする。ブランチを checkout している場合は **/atelier:verify** で検証を独立に再現してよい(green を鵜呑みにしない)
 2. **第 1 相 — 独立レビュー(並列)**: work 手順 8 と同じ `atelier:review:*` team(定義は plugin の `agents/review/`)を**独立に並列 dispatch する**。review が起動主体なので、実装コンテキストを共有しない「別コンテキストレビュア」の条件を満たす。各 agent は自分の観点の preset だけを read-only で見て、互いの存在・指摘を知らせない(アンカリング防止)。加えて **PM 自身が**「diff が受け入れ条件を実際に満たしているか」を突き合わせる。project が同名の `.claude/agents/` を定義していればそれが優先される
 3. **相互チェック段 — 突き合わせ(huddle 同型)**: 全レンズの指摘と PM の受け入れ条件照合を突き合わせ、次を機械的に検出する:
    - **重複**: 同一箇所・同一原因を複数レンズが指摘 → 最も根本原因を的確に述べた 1 件へ畳む(指摘件数はここで確定する)
