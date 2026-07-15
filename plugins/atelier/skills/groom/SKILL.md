@@ -42,16 +42,17 @@ tools:
 
 `AskUserQuestion` で 1 論点ずつ確定する。選択肢には必ず trade-off を添える(人間がそのまま判断材料に使える形)。
 
-### 5. 必須アジェンダ
+### 5. Ready 化ゲート(spec-alignment に従う)
 
-正準は `${CLAUDE_PLUGIN_ROOT}/adr/spec-alignment.md`。issue の内容にかかわらず次を扱い、**該当しない項は「該当なし」を確認して高速に閉じる**:
+正準は手順 1 で読んだ `${CLAUDE_PLUGIN_ROOT}/adr/spec-alignment.md`。その「Ready の条件」「前提と観測の規律」「必須アジェンダ」を**そのまま実行する**(この場でリストを再定義しない — アジェンダが増減してもプリセットに追従する)。要点:
 
-1. **排他制御の選択**(concurrency-process): 書き込みを伴うか。楽観(既定)か悲観か
-2. **feature flag の要否**(feature-flags): 必要なら name / owner / 期限をその場で決める
-3. **最小 PR の分割案**(pr-granularity): 依存順つきの分割案を合意する
-4. **API リソース設計**(rest-api-design。REST の場合): メソッド × パス・ネスト構造を確定する
-5. **マージレーンの提案**(merge-policy): 失格条件(敏感領域・破壊的変更・スキーマ変更)に照らして agent マージ可否を提案し、**人間が承認する**
-6. **依存の追加**(dependency-licensing / supply-chain-security): 新規依存を洗い出して明記。選定は pros/cons + ライセンス確認つき
+- 設計レベルの前段ゲート(目的・手段の分離と往復 / 品質 portfolio)を先に通してから、手段レベル(排他制御・feature flag・PR 分割・API 設計・マージレーン・依存・文書)を確定する
+- issue の内容にかかわらず全項目を扱い、**該当しない項は「該当なし」を確認して高速に閉じる**
+
+このうち **groom の場でのみ握る**判断(spec-alignment に委ねず、ここで明示的に確定する):
+
+- **マージレーン**(merge-policy): 失格条件(敏感領域・破壊的変更・スキーマ変更)に照らして agent マージ可否を提案し、**人間が承認する**(承認された場合のみ手順 8 で `merge:agent` を付与)
+- **依存の追加**(dependency-licensing / supply-chain-security): 新規依存は pros/cons + ライセンス確認つきで明記する
 
 ### 6. 憲法照合と ADR 候補の発見
 
