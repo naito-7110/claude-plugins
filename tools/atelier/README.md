@@ -25,6 +25,10 @@ $ git push origin atelier/v1.0.0
 
 タグ push で `.github/workflows/atelier-release.yml` が goreleaser を実行し、GOOS={linux, darwin, windows} × GOARCH={amd64, arm64} の 6 バイナリ(アーカイブ)と `checksums.txt` を GitHub Release に添付する。ビルド設定は `tools/atelier/.goreleaser.yml`。
 
+続けて同 workflow の `pin-update` ジョブが、公開された Release の `checksums.txt` を取得してプラグイン同梱ピン(`plugins/atelier/pin/version` + `pin/checksums.txt`)を新リリースへ追従させる**更新 PR を自動で起こす**。ピンは「レビュー済み commit = 信頼の根」(ADR 0003)なので main へ直接は書かない。**この PR を人間がマージすると、各マシンの SessionStart ブートストラップが新ピンへ収束する**(ブートストラップの詳細は `plugins/atelier/hooks/README.md`)。手動でのピン更新は不要。
+
+> ジョブが PR を作成するには、リポジトリ設定の **Settings → Actions → General → Workflow permissions → 「Allow GitHub Actions to create and approve pull requests」** が有効である必要がある。
+
 ## 取得
 
 `gh release download` で OS / arch に合ったアーカイブと checksum を取得し、検証してから展開する:

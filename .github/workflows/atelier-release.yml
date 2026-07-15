@@ -53,3 +53,58 @@ jobs:
             --verify-tag \
             --notes "atelier CLI のリリース。取得方法は tools/atelier/README.md を参照。" \
             dist/*.tar.gz dist/*.zip dist/checksums.txt
+
+  # プラグイン同梱ピン(pin/version + pin/checksums.txt)を新リリースへ追従させる。
+  # ピンは「レビュー済み commit = 信頼の根」(ADR 0003)なので main へ直 push せず、
+  # 更新 PR を起こして人間マージで収束させる。公開済み Release の checksums.txt を
+  # そのまま採用する(消費者が検証に使う値と同一)ため release ジョブに依存する。
+  # 前提: リポジトリ設定「Allow GitHub Actions to create and approve pull requests」が有効。
+  pin-update:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # ピン更新ブランチの push に必要
+      pull-requests: write # ピン更新 PR の作成に必要
+    defaults:
+      run:
+        working-directory: . # 既定(tools/atelier)を上書き — ピンはリポジトリルート配下
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: main # ピン更新は常に最新 main を base にする(タグ commit ではなく)
+      - name: Derive semver from tag (atelier/vX.Y.Z -> X.Y.Z)
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#atelier/v}" >> "$GITHUB_OUTPUT"
+      - name: Download published checksums.txt from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --pattern checksums.txt --output /tmp/checksums.txt --clobber
+      - name: Update bundled pin
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          printf '%s\n' "$VERSION" > plugins/atelier/pin/version
+          cp /tmp/checksums.txt plugins/atelier/pin/checksums.txt
+      - name: Open pin-update PR if changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git diff --quiet -- plugins/atelier/pin; then
+            echo "ピンは既に v$VERSION と一致。PR は作成しない。"
+            exit 0
+          fi
+          branch="pin-update/atelier-v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add plugins/atelier/pin/version plugins/atelier/pin/checksums.txt
+          git commit -m "chore(atelier): bump bundled pin to v$VERSION"
+          git push --force origin "$branch"
+          if gh pr list --head "$branch" --state open --json number --jq 'length' | grep -qx 0; then
+            gh pr create --base main --head "$branch" \
+              --title "chore(atelier): bump bundled pin to v$VERSION" \
+              --body "リリース \`$GITHUB_REF_NAME\` に合わせてプラグイン同梱ピン(\`plugins/atelier/pin/\`)を更新する自動 PR。マージで全マシンが新ピンへ収束する(ADR 0003)。checksums.txt は公開 Release から取得した値。"
+          else
+            echo "既存の pin-update PR を更新した(新規作成はしない)。"
+          fi
