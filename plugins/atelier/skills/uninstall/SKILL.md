@@ -3,8 +3,8 @@ name: uninstall
 description: atelier をやめるときの cleanup(対話専用)。ローカル状態(.agents/)の削除 → 残るもの(committed 設置物・GitHub 側)の一覧提示。プラグイン機構に uninstall フックは無いため、プラグイン本体を uninstall する前にこれを実行する
 tools:
   - Bash(atelier, crontab, rm, ls, gh)
-  - Read
   - AskUserQuestion
+  - Read
 ---
 
 **プラグイン本体を uninstall する前に実行する**(Claude Code のプラグイン機構に uninstall フックは無く、自動 cleanup は構造的に不可能)。hooks とスキルはプラグイン無効化で自動的に解除されるので、ここで片付けるのは**プラグインの外に作られたもの**だけ。

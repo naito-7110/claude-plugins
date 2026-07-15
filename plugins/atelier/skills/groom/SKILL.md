@@ -3,8 +3,8 @@ name: groom
 description: 仕様揉み(対話専用)。issue の曖昧点・エッジケース・受け入れ条件の漏れを人間と 1 論点ずつ確定し、「確定済みの設計」として本文へ書き戻して Ready 化する。merge:agent の付与はこのスキルだけが行える
 tools:
   - Bash(gh issue view, gh issue edit, gh issue comment, gh issue list, gh project item-list, gh project item-edit, gh repo view)
-  - AskUserQuestion
   - Task
+  - AskUserQuestion
   - Read
   - Glob
   - Grep

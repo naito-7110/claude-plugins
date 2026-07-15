@@ -4,12 +4,12 @@ description: 中核スキル。issue 番号を受け取り、影響調査 → wo
 tools:
   - Bash(git, gh, atelier)
   - Task
+  - AskUserQuestion
   - Read
   - Write
   - Edit
   - Glob
   - Grep
-  - AskUserQuestion
 ---
 
 対象: `$ARGUMENTS` の issue 番号。迷ったら推測で進まず、停止してエスカレーションする(fail-closed)。記録はすべて issue コメント(外部サービスを使わない)。

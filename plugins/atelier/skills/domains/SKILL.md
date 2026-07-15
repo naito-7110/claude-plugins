@@ -3,8 +3,8 @@ name: domains
 description: ドメイン分割(対話専用)。domain-partitioning プリセットの基準に沿ってドメインの定義・分割・統合・パス移管を人間と確定し、ownership.yml と docs/domains の雛形を生成する。init は空マップまでしか作らないため、ドメインを切るのはこのスキルだけ
 tools:
   - Bash(gh issue view, gh issue comment, gh pr create, git log, git shortlog, git checkout, git add, git commit, git push, git ls-files, atelier)
-  - AskUserQuestion
   - Task
+  - AskUserQuestion
   - Read
   - Write
   - Glob

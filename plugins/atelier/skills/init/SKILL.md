@@ -1,6 +1,6 @@
 ---
 name: init
-description: Set up the atelier in a repository (idempotent): create operation labels, a Projects board, install the constitution guidance (preset ADR reference + local docs/adr scaffold), derive stack facts into CLAUDE.md, and scaffold the document map (docs/atelier), domain docs, and .agents/
+description: atelier の設置(冪等)。運用ラベル・Projects ボードの作成、憲法の案内の設置(プリセット ADR 参照 + ローカル docs/adr の雛形)、スタック事実の CLAUDE.md への導出、文書の地図(.atelier)・ドメイン文書・.agents/ の scaffold を行う。リポジトリへ atelier を導入するとき、または再実行で更新するときに使う
 tools:
   - Bash(gh auth status, gh repo view, gh label create, gh label list, gh project list, gh project create, gh project link, gh api, git ls-files, git check-ignore)
   - AskUserQuestion
