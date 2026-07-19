@@ -72,7 +72,7 @@ gh issue edit <n> --add-label agent-ok --remove-label needs-human
 
 - **手順 5-6 で人間が agent マージを承認した場合のみ、ここで `merge:agent` を付与する**(Ready 化と同時。他のどの場でも付与しない — merge-policy)
 - Projects ボードがあれば Status → Ready(なければラベルのみでよい)
-- **ラベルが未設置の repo では**(縮退): Ready 化は本文へ書き戻した「確定済みの設計」節がそれ自体 Ready の徴であり、加えて issue コメントで「Ready(仕様確定)」と宣言する。agent マージ承認が出た場合は `merge:agent` の代わりに issue コメントへ「人間が agent マージを承認」と記録する(強制はされないので、実際のマージは人間 or work の縮退マージ判断が担う)
+- **ラベルが未設置の repo では**(縮退): Ready 化は本文へ書き戻した「確定済みの設計」節がそれ自体 Ready の徴であり、加えて issue コメントで「Ready(仕様確定)」と宣言する。agent マージ承認が出た場合は `merge:agent` の代わりに issue コメントへ「人間が agent マージを承認」と記録する — ただしこの記録は経緯の保存であり、マージ許可ではない。ラベル未設置の repo では別コンテキストレビュア(review)が対象ゼロで縮退し merge-policy の実行条件を満たせないため、**実際のマージは常に人間が行う**(work 手順10 と同じ)
 
 ## 禁止事項
 
