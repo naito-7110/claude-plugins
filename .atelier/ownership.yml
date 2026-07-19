@@ -1,0 +1,3 @@
+# パス(glob)→ ドメインの所有マップ(atelier docs verify が検証する)
+# ドメイン分割は /atelier:domains で行う(init は空マップまで)
+domains: {}
