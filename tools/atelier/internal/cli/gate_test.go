@@ -85,7 +85,8 @@ func managedRoot(t *testing.T) string {
 }
 
 // mergeReadyPR は全マージ条件(pr verify green・Closes 紐づけ・merge:agent・
-// CI green・atelier-review green)を満たす PR #64 を登録する。
+// CI green・atelier-review green・レビュア投稿者 ≠ PR 作者)を満たす PR #64 を
+// 登録する。
 func mergeReadyPR(server *ghfake.Server) *ghfake.PullRequest {
 	issue := readyIssue(server)
 	issue.Labels = append(issue.Labels, "merge:agent")
@@ -99,6 +100,8 @@ func mergeReadyPR(server *ghfake.Server) *ghfake.PullRequest {
 		ClosingIssues: []int{38},
 		ChecksState:   "SUCCESS",
 		ReviewState:   "SUCCESS",
+		Author:        "impl-agent",
+		ReviewCreator: "reviewer-bot",
 	})
 }
 
@@ -618,6 +621,58 @@ func TestGateMergeReviewNotGreenBlocked(t *testing.T) {
 		result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 			bashJSON(t, "gh pr merge 64 --squash"))
 		assertBlocked(t, result, "別コンテキストレビュア(atelier-review)の green がありません")
+	}
+}
+
+// --- #116: atelier-review 投稿者の検証(merge-policy: 独立の (d) 資格情報)---
+//
+// status が green でも、その投稿者(creator.login)が PR 作者と同一なら独立
+// レビューではない(実装セッションが起動したサブエージェントの自己承認を、
+// 資格情報の同一性で機械検出する)。投稿者・PR 作者が特定できない場合も
+// fail-closed でブロックする。
+
+// 投稿者が PR 作者と別アカウントなら通る(不一致 = 独立の検証可能な状態)。
+func TestGateMergeReviewerDistinctFromAuthorPasses(t *testing.T) {
+	server := testServer()
+	pr := mergeReadyPR(server)
+	pr.Author = "impl-agent"
+	pr.ReviewCreator = "reviewer-bot"
+
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
+		bashJSON(t, "gh pr merge 64 --squash"))
+	assertAllowed(t, result)
+}
+
+// 投稿者が PR 作者と同一アカウントなら、status が green でもブロックする。
+func TestGateMergeReviewerSameAsAuthorBlocked(t *testing.T) {
+	server := testServer()
+	pr := mergeReadyPR(server)
+	pr.Author = "impl-agent"
+	pr.ReviewCreator = "impl-agent"
+
+	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
+		bashJSON(t, "gh pr merge 64 --squash"))
+	assertBlocked(t, result, "PR 作者と同一アカウント(impl-agent)")
+}
+
+// 投稿者(または PR 作者)が特定できない場合も fail-closed でブロックする。
+func TestGateMergeReviewerUnknownBlocked(t *testing.T) {
+	cases := []struct{ name, author, creator string }{
+		{"creator-unknown", "impl-agent", ""},  // 投稿者不明
+		{"author-unknown", "", "reviewer-bot"}, // PR 作者不明(作者側が欠けても同一性を検証できない)
+		{"both-unknown", "", ""},               // 両方不明
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := testServer()
+			pr := mergeReadyPR(server)
+			pr.Author = tc.author
+			pr.ReviewCreator = tc.creator
+
+			result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
+				bashJSON(t, "gh pr merge 64 --squash"))
+			assertBlocked(t, result, "投稿者を検証できません")
+		})
 	}
 }
 

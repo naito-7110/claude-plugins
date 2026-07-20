@@ -18,7 +18,7 @@
 | --- | --- |
 | main 直 push / force push | 常にブロック(git-workflow) |
 | push ゲート | `agent/issue-<n>-*` ブランチの push 前に `atelier issue verify`(ラベルなしの実装は push 不可) |
-| マージゲート | `atelier pr verify` + Closes 紐づけ + 紐づく issue の `merge:agent` + CI green + **atelier-review status = success**(merge-policy の全実行条件) |
+| マージゲート | `atelier pr verify` + Closes 紐づけ + 紐づく issue の `merge:agent` + CI green + **atelier-review status = success かつ投稿者 ≠ PR 作者**(merge-policy の全実行条件。投稿者・作者が特定できない場合も fail-closed でブロック — 独立の (d) 資格情報の機械検証) |
 | リリースゲート | タグ push(`--tags` / `refs/tags/` / `atelier/v*`・旧名 `factory/v*`)と、残存する旧版バイナリのリリースコマンド起動をブロック — デプロイは人間の tag push(merge-policy) |
 
 ## 検証手順
@@ -37,3 +37,4 @@ echo '{"tool_name":"Bash","tool_input":{"command":"gh pr merge 123"}}' \
 
 - hook は **Claude Code 経由の操作しか縛れない**(L2)。curl + token の直叩きはサーバー側(#17 の GHA required check = L3)の守備範囲
 - 文字列マッチの迂回は原理的に可能。ここでの目的は敵対防御ではなく**事故防止**(fail-closed の機械化)
+- マージゲートの投稿者検証が保証するのは「status を投稿した資格情報の login ≠ PR 作者」まで。**レビュア用トークンを実装セッションの環境に置かない**こと(資格情報の分離)が運用前提(merge-policy: 独立の (d))

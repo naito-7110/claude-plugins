@@ -8,7 +8,8 @@
 //  1. main への直 push / force push: 常にブロック
 //  2. push ゲート: agent/issue-<n>-* ブランチの push 前に issue の状態を検証
 //  3. マージゲート: PR↔issue 整合 + Closes 紐づけ + merge:agent + CI green +
-//     別コンテキストレビュア(atelier-review status = success)
+//     別コンテキストレビュア(atelier-review status = success かつ投稿者 ≠ PR 作者。
+//     #116: 資格情報の同一性で独立を機械検証し、特定不能は fail-closed)
 //  4. リリースゲート: リリースコマンドの起動(--dry-run を除く)とタグ push を
 //     常にブロック(merge-policy: デプロイ = 人間の tag push)。release
 //     サブコマンドは #129 で撤去済みだが、旧版バイナリ(factory 名義を含む)が
@@ -469,8 +470,14 @@ func atoiLoose(s string) int {
 
 // checkMerge はマージゲート。PR 番号を受け取り(0 ならカレントブランチ —
 // hook cwd 基準(#138)— の PR)、pr verify → Closes 紐づけ → merge:agent →
-// CI green → atelier-review green の順に確認する(fail-closed: 確認できない
-// ものはブロック)。
+// CI green → atelier-review green → レビュア投稿者 ≠ PR 作者の順に確認する
+// (fail-closed: 確認できないものはブロック)。
+//
+// 投稿者検証(#116)は merge-policy の「独立とは支配の非保有」のうち (d) 資格
+// 情報の機械検証: status が green でも、投稿した資格情報が PR 作者と同一なら
+// 独立レビューとは認めない。投稿者・作者のどちらかでも特定できなければ同一性を
+// 検証できないため fail-closed でブロックする(検証できない体制では agent
+// レーンを開かない)。
 func checkMerge(number int, cwd string, deps Deps) string {
 	client, repo, err := resolveClient(deps)
 	if err != nil {
@@ -509,6 +516,14 @@ func checkMerge(number int, cwd string, deps Deps) string {
 	}
 	if status.ReviewState != "SUCCESS" {
 		return fmt.Sprintf("PR #%d は別コンテキストレビュア(atelier-review)の green がありません(merge-policy の実行条件)", number)
+	}
+	if status.ReviewerLogin == "" || status.AuthorLogin == "" {
+		return fmt.Sprintf("PR #%d は atelier-review の投稿者を検証できません(投稿者または PR 作者が特定できない — 独立を検証できない体制では agent マージ不可。merge-policy)", number)
+	}
+	// login の比較は大文字小文字を畳む(GitHub の login は case-insensitive。
+	// casing 差で「別アカウント」と誤判定する fail-open を防ぐ)。
+	if strings.EqualFold(status.ReviewerLogin, status.AuthorLogin) {
+		return fmt.Sprintf("PR #%d の atelier-review は PR 作者と同一アカウント(%s)の投稿です(独立レビューではありません — merge-policy の実行条件)", number, status.ReviewerLogin)
 	}
 	return ""
 }
@@ -556,18 +571,20 @@ func printPRFindings(w io.Writer, report verify.PRReport) {
 
 // --- マージゲートの GraphQL クエリ ---
 
-// mergeStatusQuery は Closes 紐づけ・CI rollup・atelier-review status を 1 回で取る。
-// statusCheckRollup が SUCCESS 以外(FAILURE / PENDING / 無し)は bash 版の
-// `gh pr checks` 非ゼロと同じくブロック対象。
+// mergeStatusQuery は Closes 紐づけ・CI rollup・atelier-review status(state と
+// 投稿者)・PR 作者を 1 回で取る。statusCheckRollup が SUCCESS 以外(FAILURE /
+// PENDING / 無し)は bash 版の `gh pr checks` 非ゼロと同じくブロック対象。
+// creator / author はアカウント削除等で null になりうる(その場合は fail-closed)。
 const mergeStatusQuery = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
+      author { login }
       closingIssuesReferences(first: 1) { nodes { number } }
       commits(last: 1) {
         nodes {
           commit {
             statusCheckRollup { state }
-            status { context(name: "atelier-review") { state } }
+            status { context(name: "atelier-review") { state creator { login } } }
           }
         }
       }
@@ -590,9 +607,11 @@ const issueLabelsQuery = `query($owner: String!, $name: String!, $number: Int!) 
 }`
 
 type mergeStatus struct {
-	LinkedIssue int
-	ChecksState string // statusCheckRollup.state("" = check なし)
-	ReviewState string // atelier-review context の state("" = status なし)
+	LinkedIssue   int
+	ChecksState   string // statusCheckRollup.state("" = check なし)
+	ReviewState   string // atelier-review context の state("" = status なし)
+	AuthorLogin   string // PR 作者の login("" = 特定不能)
+	ReviewerLogin string // atelier-review status の投稿者 login("" = 特定不能)
 }
 
 func splitRepo(repo string) (string, string, error) {
@@ -611,6 +630,9 @@ func fetchMergeStatus(client verify.GraphQL, repo string, number int) (mergeStat
 	var resp struct {
 		Repository *struct {
 			PullRequest *struct {
+				Author *struct {
+					Login string `json:"login"`
+				} `json:"author"`
 				ClosingIssuesReferences struct {
 					Nodes []struct {
 						Number int `json:"number"`
@@ -624,7 +646,10 @@ func fetchMergeStatus(client verify.GraphQL, repo string, number int) (mergeStat
 							} `json:"statusCheckRollup"`
 							Status *struct {
 								Context *struct {
-									State string `json:"state"`
+									State   string `json:"state"`
+									Creator *struct {
+										Login string `json:"login"`
+									} `json:"creator"`
 								} `json:"context"`
 							} `json:"status"`
 						} `json:"commit"`
@@ -642,6 +667,9 @@ func fetchMergeStatus(client verify.GraphQL, repo string, number int) (mergeStat
 	}
 	pr := resp.Repository.PullRequest
 	status := mergeStatus{}
+	if pr.Author != nil {
+		status.AuthorLogin = pr.Author.Login
+	}
 	if len(pr.ClosingIssuesReferences.Nodes) > 0 {
 		status.LinkedIssue = pr.ClosingIssuesReferences.Nodes[0].Number
 	}
@@ -652,6 +680,9 @@ func fetchMergeStatus(client verify.GraphQL, repo string, number int) (mergeStat
 		}
 		if commit.Status != nil && commit.Status.Context != nil {
 			status.ReviewState = commit.Status.Context.State
+			if commit.Status.Context.Creator != nil {
+				status.ReviewerLogin = commit.Status.Context.Creator.Login
+			}
 		}
 	}
 	return status, nil
