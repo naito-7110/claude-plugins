@@ -520,7 +520,9 @@ func checkMerge(number int, cwd string, deps Deps) string {
 	if status.ReviewerLogin == "" || status.AuthorLogin == "" {
 		return fmt.Sprintf("PR #%d は atelier-review の投稿者を検証できません(投稿者または PR 作者が特定できない — 独立を検証できない体制では agent マージ不可。merge-policy)", number)
 	}
-	if status.ReviewerLogin == status.AuthorLogin {
+	// login の比較は大文字小文字を畳む(GitHub の login は case-insensitive。
+	// casing 差で「別アカウント」と誤判定する fail-open を防ぐ)。
+	if strings.EqualFold(status.ReviewerLogin, status.AuthorLogin) {
 		return fmt.Sprintf("PR #%d の atelier-review は PR 作者と同一アカウント(%s)の投稿です(独立レビューではありません — merge-policy の実行条件)", number, status.ReviewerLogin)
 	}
 	return ""

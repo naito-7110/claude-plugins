@@ -652,25 +652,27 @@ func TestGateMergeReviewerSameAsAuthorBlocked(t *testing.T) {
 
 	result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
 		bashJSON(t, "gh pr merge 64 --squash"))
-	assertBlocked(t, result, "PR 作者と同一アカウント")
+	assertBlocked(t, result, "PR 作者と同一アカウント(impl-agent)")
 }
 
 // 投稿者(または PR 作者)が特定できない場合も fail-closed でブロックする。
 func TestGateMergeReviewerUnknownBlocked(t *testing.T) {
-	cases := []struct{ author, creator string }{
-		{"impl-agent", ""}, // 投稿者不明
-		{"", "reviewer-bot"}, // PR 作者不明(作者側が欠けても同一性を検証できない)
-		{"", ""},             // 両方不明
+	cases := []struct{ name, author, creator string }{
+		{"creator-unknown", "impl-agent", ""},  // 投稿者不明
+		{"author-unknown", "", "reviewer-bot"}, // PR 作者不明(作者側が欠けても同一性を検証できない)
+		{"both-unknown", "", ""},               // 両方不明
 	}
 	for _, tc := range cases {
-		server := testServer()
-		pr := mergeReadyPR(server)
-		pr.Author = tc.author
-		pr.ReviewCreator = tc.creator
+		t.Run(tc.name, func(t *testing.T) {
+			server := testServer()
+			pr := mergeReadyPR(server)
+			pr.Author = tc.author
+			pr.ReviewCreator = tc.creator
 
-		result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
-			bashJSON(t, "gh pr merge 64 --squash"))
-		assertBlocked(t, result, "投稿者を検証できません")
+			result := executeGate(t, server, "agent/issue-38-gate", managedRoot(t),
+				bashJSON(t, "gh pr merge 64 --squash"))
+			assertBlocked(t, result, "投稿者を検証できません")
+		})
 	}
 }
 

@@ -43,6 +43,8 @@ gh api "repos/{owner}/{repo}/statuses/<head-sha>" \
   -f description="independent review passed"
 ```
 
+- **投稿する資格情報は PR 作者と別アカウントであること**: マージゲートは status の投稿者(creator.login)が PR 作者と同一なら green でも拒否する(fail-closed。merge-policy: 独立の (d) 資格情報の機械検証)。単一アカウント運用では agent マージレーンは構造的に閉じたままになる(改憲で確定した正当状態 — レビューと failure/success の表明自体は行ってよい)
+
 - **要対応**: `state=failure` を付け、PR に指摘コメントを書く(重大度・該当箇所・選択肢と pros/cons — エスカレーションと同じ「人間がそのまま判断材料に使える」様式)。**未収束の観点間矛盾も failure**(両論併記を指摘コメントに載せ、人間の裁定へ回す — 割れた判断を success にしない fail-closed)
 - **判定不能**(材料不足・diff が大きすぎる・受け入れ条件が読めない)も **failure**(fail-closed)+ 理由
 - **ラベル・issue 本文・PR 本文を操作しない**。merge:agent を外して人間レーンへ降格するのは orchestrate の回収時(責務分離: レビュアは判定、状態遷移は PM)
