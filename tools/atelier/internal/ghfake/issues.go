@@ -32,6 +32,8 @@ type PullRequest struct {
 	ClosingIssues []int  // Closes で紐づく issue 番号
 	ChecksState   string // statusCheckRollup.state("" = check なし)
 	ReviewState   string // atelier-review status context の state("" = status なし)
+	Author        string // PR 作者の login("" = 作者不明。実 API では null になりうる)
+	ReviewCreator string // atelier-review status の投稿者 login("" = 投稿者不明)
 }
 
 // AddIssue は issue を "owner/name" のリポジトリへ登録する。
@@ -121,13 +123,25 @@ func (s *Server) doMergeStatusQuery(vars map[string]interface{}, response interf
 	}
 	var status interface{}
 	if pr.ReviewState != "" {
-		status = map[string]interface{}{"context": map[string]string{"state": pr.ReviewState}}
+		var creator interface{}
+		if pr.ReviewCreator != "" {
+			creator = map[string]string{"login": pr.ReviewCreator}
+		}
+		status = map[string]interface{}{"context": map[string]interface{}{
+			"state":   pr.ReviewState,
+			"creator": creator,
+		}}
 	} else {
 		status = map[string]interface{}{"context": nil}
+	}
+	var author interface{}
+	if pr.Author != "" {
+		author = map[string]string{"login": pr.Author}
 	}
 	return reply(response, map[string]interface{}{
 		"repository": map[string]interface{}{
 			"pullRequest": map[string]interface{}{
+				"author":                  author,
 				"closingIssuesReferences": map[string]interface{}{"nodes": closing},
 				"commits": map[string]interface{}{
 					"nodes": []map[string]interface{}{

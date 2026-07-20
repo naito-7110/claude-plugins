@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **マージゲートに atelier-review 投稿者の検証を追加**(#116): status が green でも、その投稿者(creator.login)が PR 作者と同一アカウントなら agent マージをブロックする(merge-policy「独立とは支配の非保有」の (d) 資格情報の機械検証)。投稿者・PR 作者が特定できない場合も fail-closed でブロック。単一アカウント運用では merge:agent レーンが閉じたままになるが、これは改憲(#120)で確定した正当状態
+
 ## 1.1.1(2026-07-06)
 
 パッチリリース(破壊的変更なし)。
