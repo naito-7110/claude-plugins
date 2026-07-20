@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0(2026-07-16)
+
+ガードレールを opt-in に寄せる改善リリース(破壊的変更なし)。憲法(preset `distributable-boundary` 決定4 + 製品 ADR 0001)の方針「価値の本体は憲法 + スキル、ガードレールは opt-in の別層」の第一歩。
+
+- **スキルの graceful degradation**: 運用ラベル・Projects ボード・gate バイナリ・required CI が**未設置でもスキルが軽量モードで動く**よう、各スキルの「あれば使う・無ければ縮退」を一般化。`work`(ラベル操作 → 未定義なら issue コメント宣言)・`groom`(Ready 化/`merge:agent` 承認 → 本文 + コメント)・`domains`(`docs verify` → バイナリ無しは手動確認)・`huddle`(ownership.yml 無し → groom へ)・`review`(`merge:agent` レーン専用 → 未使用なら対象ゼロで縮退)・`orchestrate`/`triage`(台帳・実態 / コメントで代替)。価値の本体(憲法の選択読み・TDD・影響調査・セルフレビュー・仕様確定プロセス)はガードレール非依存であることを各スキル冒頭に明記
+
 ## 1.1.1(2026-07-06)
 
 パッチリリース(破壊的変更なし)。

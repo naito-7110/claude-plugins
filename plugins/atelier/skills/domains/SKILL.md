@@ -13,6 +13,8 @@ tools:
 
 **対話専用。** ドメインの境界は所有・文書・huddle の品質を決める意思決定であり、人間の確定が必須。判断基準の正準は `${CLAUDE_PLUGIN_ROOT}/adr/domain-partitioning.md`(+ documentation)。
 
+> **ドメイン分割は任意の上物。** `ownership.yml`・`docs/domains/` を敷かなくても work/groom は単一レーンで動く(所有マップ依存の手順は縮退する)。本スキルはその上物を敷きたいとき使う opt-in の層であり、価値の前提ではない。
+
 ## 手順
 
 ### 1. 現状把握
@@ -41,7 +43,7 @@ tools:
 
 ### 5. 整合確認
 
-`atelier docs verify` を実行し、green(構造・所有マップ・重複所有の警告なし)を確認してから PR を作る。verify が通らない状態で PR を出さない。
+`atelier docs verify` を実行し、green(構造・所有マップ・重複所有の警告なし)を確認してから PR を作る。verify が通らない状態で PR を出さない。**atelier バイナリが無い repo では**(縮退)、`docs verify` の代わりに手動でスキーマを確認する: `ownership.yml` の各 `domains.<name>.paths` が実パスに解決し重複所有が無いこと、`docs/domains/<name>/` に README・contracts が揃っていること。
 
 ### 6. 再編(分割・統合・移管)
 
