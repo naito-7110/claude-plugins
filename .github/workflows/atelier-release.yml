@@ -85,12 +85,21 @@ jobs:
         run: |
           printf '%s\n' "$VERSION" > plugins/atelier/pin/version
           cp /tmp/checksums.txt plugins/atelier/pin/checksums.txt
+      # marketplace のタグピン(#163)も同じ追従 PR で更新する。
+      # marketplace.json の source.ref がタグを指す限り、main への push は
+      # plugin update の取得内容に影響しない(main マージとリリースの分離)。
+      - name: Update marketplace tag pin
+        run: |
+          jq --arg ref "$GITHUB_REF_NAME" \
+            '(.plugins[] | select(.name == "atelier") | .source.ref) = $ref' \
+            .claude-plugin/marketplace.json > /tmp/marketplace.json
+          mv /tmp/marketplace.json .claude-plugin/marketplace.json
       - name: Open pin-update PR if changed
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if git diff --quiet -- plugins/atelier/pin; then
+          if git diff --quiet -- plugins/atelier/pin .claude-plugin/marketplace.json; then
             echo "ピンは既に v$VERSION と一致。PR は作成しない。"
             exit 0
           fi
@@ -98,13 +107,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
-          git add plugins/atelier/pin/version plugins/atelier/pin/checksums.txt
+          git add plugins/atelier/pin/version plugins/atelier/pin/checksums.txt .claude-plugin/marketplace.json
           git commit -m "chore(atelier): bump bundled pin to v$VERSION"
           git push --force origin "$branch"
           if gh pr list --head "$branch" --state open --json number --jq 'length' | grep -qx 0; then
             gh pr create --base main --head "$branch" \
               --title "chore(atelier): bump bundled pin to v$VERSION" \
-              --body "リリース \`$GITHUB_REF_NAME\` に合わせてプラグイン同梱ピン(\`plugins/atelier/pin/\`)を更新する自動 PR。マージで全マシンが新ピンへ収束する(ADR 0003)。checksums.txt は公開 Release から取得した値。"
+              --body "リリース \`$GITHUB_REF_NAME\` に合わせてプラグイン同梱ピン(\`plugins/atelier/pin/\`)と marketplace のタグピン(\`.claude-plugin/marketplace.json\` の source.ref、#163)を更新する自動 PR。マージで全マシンが新ピンへ収束し(ADR 0003)、plugin update の取得内容が新タグへ切り替わる。checksums.txt は公開 Release から取得した値。"
           else
             echo "既存の pin-update PR を更新した(新規作成はしない)。"
           fi
